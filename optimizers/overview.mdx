@@ -1,0 +1,77 @@
+---
+title: Choosing the Right DSPy Optimizer for Your Pipeline
+sidebarTitle: Overview
+description: Compare all DSPy optimizers — BootstrapFewShot, MIPROv2, GEPA, and BetterTogether — and pick the right one for your dataset size and goals.
+---
+
+The optimizer is the heart of every DSPy pipeline — it automatically rewrites your prompts, selects your few-shot demonstrations, or fine-tunes your model weights so that your program scores higher on your metric. Choosing the right optimizer from the start saves you time and money, because each one makes different trade-offs between dataset requirements, compute budget, and the quality ceiling you can reach.
+
+## Which Optimizer Should You Use?
+
+Match your situation to the recommended optimizer in the table below. These are starting-point recommendations — you can always chain optimizers or switch after an initial run.
+
+| Situation | Recommended Optimizer |
+|---|---|
+| Fewer than 20 examples, want quick results | BootstrapFewShot |
+| 20–100 examples, want best prompt quality | MIPROv2 |
+| Want model reflection on failures | GEPA |
+| 100+ examples, need maximum performance | BetterTogether or BootstrapFinetune |
+| Need labeled demos only, no inference | LabeledFewShot |
+
+## Optimization Budgets
+
+MIPROv2 and GEPA both accept an `auto` parameter that controls how many candidate programs get evaluated during the search. Use a lighter budget to iterate quickly and a heavier budget for production runs.
+
+| Budget | `auto` value | Approximate trials | Best for |
+|---|---|---|---|
+| Quick iteration | `'light'` | ~6 | Fast feedback during development |
+| Balanced | `'medium'` | ~25 | Most production workloads |
+| Maximum quality | `'heavy'` | 50+ | High-stakes tasks where cost is secondary |
+
+## Common Usage Pattern
+
+Every optimizer follows the same five-step pattern: split your data, define a metric, compile the optimizer, evaluate the result, and save the optimized program.
+
+```python
+import dspy
+
+# 1. Split your data
+train = data[:80]  # 80% train
+dev = data[80:]    # 20% eval
+
+# 2. Define metric
+def my_metric(example, prediction, trace=None):
+    return prediction.answer.strip().lower() == example.answer.strip().lower()
+
+# 3. Pick and run optimizer
+optimizer = dspy.MIPROv2(metric=my_metric, auto='medium')
+optimized = optimizer.compile(program, trainset=train, valset=dev)
+
+# 4. Evaluate
+evaluate = dspy.Evaluate(devset=dev, metric=my_metric)
+print(evaluate(optimized))  # e.g. 0.82
+
+# 5. Save
+optimized.save('program_v1.json')
+```
+
+<Note>
+Always keep your `dev` / `valset` strictly separate from `trainset`. If examples leak between the two splits, your evaluation scores will be overly optimistic and the optimizer may overfit.
+</Note>
+
+## Explore Each Optimizer
+
+<CardGroup cols={2}>
+  <Card title="MIPROv2" icon="wand-magic-sparkles" href="/optimizers/miprov2">
+    The most powerful general-purpose optimizer. Searches over both instructions and few-shot demos using a surrogate model. Best for 20–100+ examples.
+  </Card>
+  <Card title="GEPA" icon="arrows-rotate" href="/optimizers/gepa">
+    Reflective prompt evolution driven by LM feedback. Best when your metric can explain *why* a prediction is wrong.
+  </Card>
+  <Card title="Bootstrap" icon="bolt" href="/optimizers/bootstrap">
+    The fastest way to add high-quality few-shot demos to your pipeline. Several variants from dead-simple to robust random search.
+  </Card>
+  <Card title="BetterTogether" icon="layer-group" href="/optimizers/better-together">
+    Sequences prompt optimization and fine-tuning so each stage amplifies the other. Best for maximum performance with 100+ examples.
+  </Card>
+</CardGroup>

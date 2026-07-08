@@ -1,0 +1,122 @@
+---
+title: "dspy.Signature — Typed Task Input/Output Declaration"
+sidebarTitle: "Signature"
+description: "dspy.Signature is the base class for declaring typed task inputs and outputs in DSPy programs. Define your task contract without writing prompts manually."
+---
+
+`dspy.Signature` is the foundation of every DSPy program — it lets you declare what your language model task expects as input and what it should produce as output, using standard Python type annotations. Instead of writing prompt strings by hand, you define a typed contract that DSPy translates into a well-structured prompt automatically, and that optimizers can rewrite and improve on your behalf.
+
+## Class Definition
+
+Subclass `dspy.Signature` and annotate your fields using `dspy.InputField()` and `dspy.OutputField()`. The class docstring becomes the task instruction passed to the model.
+
+```python
+import dspy
+
+class MySignature(dspy.Signature):
+    """Task instruction — describe what the LM should do."""
+    input_field: str = dspy.InputField(desc='...')
+    output_field: str = dspy.OutputField(desc='...')
+```
+
+## Field Constructors
+
+### `dspy.InputField(**kwargs)`
+
+Declares an input field on a signature. DSPy passes the caller-supplied value for this field into the prompt.
+
+<ParamField body="desc" type="str">
+  A short hint describing the field's purpose. DSPy includes this description in the prompt to guide the model.
+</ParamField>
+
+<ParamField body="prefix" type="str">
+  Overrides the default label used for this field in the prompt. By default, DSPy derives the label from the field name.
+</ParamField>
+
+<ParamField body="format" type="callable">
+  An optional function applied to the field value before it is inserted into the prompt. Useful for serializing complex objects or normalizing strings.
+</ParamField>
+
+### `dspy.OutputField(**kwargs)`
+
+Declares an output field on a signature. DSPy instructs the model to produce a value for this field and parses it from the response.
+
+<ParamField body="desc" type="str">
+  A short hint describing what the model should produce for this field.
+</ParamField>
+
+<ParamField body="prefix" type="str">
+  Overrides the default label used for this field in the prompt.
+</ParamField>
+
+## Supported Type Annotations
+
+DSPy uses field type annotations to format inputs and parse outputs correctly. The following types are supported:
+
+| Annotation | Notes |
+|---|---|
+| `str` | Plain text — the default for most fields |
+| `int`, `float` | Numeric types; DSPy parses and validates the model's response |
+| `bool` | Parsed as `True` or `False` |
+| `list`, `dict` | JSON-serialized collections |
+| `Literal[...]` | Restricts the output to one of the specified values |
+| `Optional[...]` | Allows the field to be `None` |
+| `list[str]` | Typed lists; DSPy enforces element type |
+| Pydantic `BaseModel` subclasses | Structured objects; DSPy uses the schema to guide and validate the output |
+
+<Note>
+  When you use a Pydantic `BaseModel` as an output type, DSPy generates a JSON schema from your model and instructs the LM to produce a conforming object. Validation errors are surfaced at call time.
+</Note>
+
+## Inline String Shorthand
+
+For simple tasks, you can skip the class definition and pass a signature string directly to any module. DSPy parses the string into fields automatically.
+
+```python
+# Single input/output
+predict = dspy.Predict('question -> answer')
+
+# Multiple fields
+predict = dspy.Predict('context, question -> answer, confidence')
+```
+
+<Tip>
+  String signatures are convenient for quick prototyping, but class-based signatures give you type safety, field descriptions, and a clearer task instruction. Prefer class-based signatures for production pipelines.
+</Tip>
+
+## Signature Inheritance
+
+You can extend an existing signature by subclassing it. The child signature inherits all fields from the parent and can add new ones or override the docstring instruction.
+
+```python
+class BaseQA(dspy.Signature):
+    """Answer questions accurately."""
+    question: str = dspy.InputField()
+    answer: str = dspy.OutputField()
+
+class CitedQA(BaseQA):
+    """Answer questions accurately with citations."""
+    citations: list[str] = dspy.OutputField(desc='Source references')
+```
+
+## Complete Typed Example
+
+The example below shows a signature that combines a Pydantic model, a `bool` output, and an `Optional` union type.
+
+```python
+from typing import Literal
+from pydantic import BaseModel
+
+class Address(BaseModel):
+    street: str
+    city: str
+    country: str
+
+class ExtractAddress(dspy.Signature):
+    """Extract a mailing address from an email."""
+    email_body: str = dspy.InputField()
+    found: bool = dspy.OutputField(desc='True if an address was found')
+    address: Address | None = dspy.OutputField(desc='The extracted address, or null')
+```
+
+Pass this signature to `dspy.Predict` or any other module to start extracting addresses from raw email text, with full type validation on every response.

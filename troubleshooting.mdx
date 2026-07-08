@@ -1,0 +1,197 @@
+---
+title: "Fix Common Issues in Your PromptOpt and DSPy Programs"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix the most common PromptOpt and DSPy errors, from LM configuration and parsing failures to slow compilation and rate limits."
+---
+
+This page covers the most frequently encountered issues when building and optimizing programs with PromptOpt and DSPy, along with concrete steps to diagnose and resolve each one. Work through the relevant accordion below to get back on track quickly.
+
+<AccordionGroup>
+  <Accordion title="LM configuration errors">
+    **Problem:** Your program raises an `AuthenticationError` or `APIError` when it tries to call the language model.
+
+    The most common causes are a missing or incorrect API key and an unrecognized model name. DSPy requires the full LiteLLM provider prefix in the model string — `openai/gpt-4o-mini`, not just `gpt-4o-mini`.
+
+    Start by confirming your key is set in the environment:
+
+    ```bash
+    echo $OPENAI_API_KEY
+    ```
+
+    Then make sure your `dspy.LM` call uses the correct format:
+
+    ```python
+    import dspy
+
+    # Correct: include the provider prefix
+    lm = dspy.LM('openai/gpt-4o-mini', api_key='sk-...')
+
+    # Or set the key via environment variable and omit it from the call
+    import os
+    os.environ['OPENAI_API_KEY'] = 'sk-...'
+    lm = dspy.LM('openai/gpt-4o-mini')
+
+    dspy.configure(lm=lm)
+    ```
+
+    <Tip>
+      Check the [LiteLLM provider list](https://docs.litellm.ai/docs/providers) for the exact prefix your provider requires — for example `anthropic/claude-3-5-sonnet-20241022` or `ollama_chat/llama3.1`.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Output parsing failures">
+    **Problem:** DSPy raises a parsing error or returns output in an unexpected format instead of the structured fields you defined.
+
+    This usually happens when an `OutputField` description is too vague, leaving the model unsure what format to produce. Make your `desc` hints explicit, and use `Literal` types whenever the output is constrained to a small set of values.
+
+    ```python
+    import dspy
+    from typing import Literal
+
+    class ReviewSignature(dspy.Signature):
+        review: str = dspy.InputField()
+
+        # Vague — the model may return anything
+        result: str = dspy.OutputField()
+
+        # Better — a plain-language constraint in the description
+        result_with_hint: str = dspy.OutputField(desc='A single word: yes or no')
+
+        # Best — a constrained type that DSPy enforces automatically
+        result_typed: Literal['yes', 'no'] = dspy.OutputField()
+    ```
+
+    <Note>
+      When you use `Literal` types, DSPy automatically retries the LM call if the output doesn't match one of the allowed values, so you get reliable structured output without extra validation code.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Optimizer produces no improvement">
+    **Problem:** Your compiled program scores the same as — or worse than — the uncompiled baseline.
+
+    There are three common root causes:
+
+    - **Too few training examples.** BootstrapFewShot needs at least 10–20; MIPROv2 needs 50 or more for reliable improvement.
+    - **A broken metric.** If your metric always returns `0` or always returns `1`, the optimizer has no signal to follow.
+    - **A near-optimal zero-shot baseline.** Some simple tasks are already solved well by a plain `Predict` — there's little headroom for the optimizer to find.
+
+    Start by testing your metric manually on a handful of examples before running a full compilation:
+
+    ```python
+    # Spot-check your metric before optimization
+    example = train[0]
+    prediction = program(**example.inputs())
+
+    score = my_metric(example, prediction)
+    print('Metric score:', score)  # should be between 0 and 1, not always the same
+    ```
+
+    <Warning>
+      A metric that never varies is the single most common reason an optimizer appears to "do nothing." Always verify it returns a meaningful range of scores before you spend API credits on compilation.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Slow compilation">
+    **Problem:** Optimization takes far longer than expected — sometimes hours for a single run.
+
+    You have several levers to pull compilation time down significantly:
+
+    - Set `auto='light'` for a faster, lower-quality pass with fewer trials.
+    - Increase `num_threads` so candidate programs are evaluated in parallel.
+    - Reduce `num_trials` explicitly in MIPROv2 when you don't need the full search budget.
+    - Use a smaller, faster model during optimization and switch to your production model afterward — optimized prompts often transfer well.
+
+    ```python
+    import dspy
+
+    optimizer = dspy.MIPROv2(
+        metric=my_metric,
+        auto='light',     # fewer instruction proposals and trials
+        num_threads=16,   # evaluate candidates in parallel
+    )
+
+    compiled = optimizer.compile(program, trainset=train)
+    ```
+
+    <Tip>
+      A `light` run is a great way to sanity-check that your metric and data are working before you invest in a `medium` or `heavy` optimization budget.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Caching issues">
+    **Problem:** Your program returns stale responses after you change your prompt, switch models, or update your data.
+
+    DSPy caches LM responses on disk so that re-running identical calls is free. After any change that should produce different outputs, that cache may be out of date.
+
+    You can disable caching entirely during debugging, or clear the cache directory to force fresh calls:
+
+    ```python
+    import dspy
+
+    # Disable the cache for the current session
+    dspy.settings.configure(cache_turn_on=False)
+
+    # Or permanently clear the on-disk cache
+    import shutil
+    import os
+
+    cache_dir = os.path.expanduser('~/.dspy_cache')
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    print('Cache cleared.')
+    ```
+
+    <Note>
+      Re-enable caching once you're done debugging — it dramatically reduces costs when you re-run optimization on the same dataset and prompts.
+    </Note>
+  </Accordion>
+
+  <Accordion title="AttributeError on prediction fields">
+    **Problem:** Your code raises `AttributeError: 'Prediction' object has no attribute 'my_field'` when you try to access an output.
+
+    Field names on a `Prediction` object match exactly the attribute names you declared in your `Signature` — any typo or mismatch causes this error. Print the prediction to inspect what fields actually came back:
+
+    ```python
+    result = program(question='What is the capital of France?')
+
+    # Inspect the full prediction object
+    print(result)
+
+    # List all available field names
+    print(result.keys())
+    ```
+
+    If the field is missing entirely, the LM may have failed to produce it. Check whether you have a vague `OutputField` description (see the *Output parsing failures* section above) or whether the model returned an empty string for that field.
+
+    <Warning>
+      Field names are case-sensitive. A signature that declares `answer` will not be accessible as `result.Answer` — use the exact name you defined.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Rate limit errors during optimization">
+    **Problem:** DSPy raises `RateLimitError` repeatedly while compiling a program, causing the optimization run to fail or stall.
+
+    Optimization fires many parallel LM calls, which can exceed your API tier's rate limits. Reduce concurrency and add automatic retry logic to survive transient limit hits:
+
+    ```python
+    import dspy
+
+    lm = dspy.LM(
+        'openai/gpt-4o-mini',
+        api_key='sk-...',
+        max_retries=5,
+        retry_on_rate_limit=True,
+    )
+    dspy.configure(lm=lm)
+
+    optimizer = dspy.MIPROv2(
+        metric=my_metric,
+        auto='light',
+        num_threads=4,   # lower thread count to reduce burst traffic
+    )
+    ```
+
+    <Tip>
+      If you're on a free or low-tier API plan, start with `num_threads=2` and `auto='light'`. Upgrading your API tier or requesting a rate-limit increase from your provider is the most effective long-term fix for large optimization runs.
+    </Tip>
+  </Accordion>
+</AccordionGroup>

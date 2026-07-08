@@ -1,0 +1,100 @@
+---
+title: "BetterTogether: Combine Prompt and Weight Optimization"
+sidebarTitle: BetterTogether
+description: BetterTogether sequences prompt optimization and fine-tuning so each stage builds on the other, maximizing program quality and score.
+---
+
+BetterTogether is a meta-optimizer that composes other optimizers — specifically, it interleaves prompt optimization (improving instructions and demonstrations) with weight optimization (fine-tuning the model itself). The insight behind BetterTogether is that these two techniques reinforce each other: better prompts generate better training data for fine-tuning, and a fine-tuned model responds more reliably to optimized prompts. Running them sequentially in a single pipeline extracts more value from both than running either one alone.
+
+## Core Concept
+
+BetterTogether accepts a prompt optimizer (`p`) and a weight optimizer (`w`) and executes them in the order you specify via a `strategy` string. The most common strategy is `'p -> w'` — first optimize the prompts to produce high-quality demonstrations, then use those demonstrations to fine-tune the model.
+
+<Warning>
+BetterTogether requires the LM to be set directly on the program via `program.set_lm(lm)`, not only through the global `dspy.configure`. Weight optimizers manage the LM lifecycle and need explicit ownership of the model reference — a globally configured LM is not sufficient.
+</Warning>
+
+## Basic Usage
+
+```python
+from dspy.teleprompt import GEPA, BootstrapFinetune, BetterTogether
+import dspy
+
+lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
+
+# Program must have LM set explicitly
+program = MyProgram()
+program.set_lm(lm)
+
+optimizer = BetterTogether(
+    metric=my_metric,
+    p=GEPA(metric=my_metric, auto='medium'),
+    w=BootstrapFinetune(metric=my_metric),
+)
+
+result = optimizer.compile(
+    program,
+    trainset=train_data,
+    valset=val_data,
+    strategy='p -> w',   # prompt optimize, then fine-tune
+)
+
+# result.candidate_programs contains all intermediate programs
+for candidate in result.candidate_programs:
+    print(candidate['strategy'], candidate['score'])
+```
+
+## Strategy Strings
+
+The `strategy` argument controls the order and composition of optimization passes. Use the arrow notation to chain any combination of named optimizers.
+
+| Strategy | Description |
+|---|---|
+| `'p -> w'` | Prompt optimize, then fine-tune — the most common production sequence |
+| `'w -> p'` | Fine-tune first, then refine prompts on the fine-tuned model |
+| `'p -> w -> p'` | Prompt, fine-tune, then prompt again for maximum quality |
+
+Any custom sequence of the optimizer names `'p'` and `'w'` is valid, including repeated passes.
+
+## Customizing Per-Optimizer Compile Arguments
+
+Pass `optimizer_compile_args` to control how each optimizer's `compile` call is made. This lets you tune trial counts, demo limits, and other optimizer-specific settings without creating separate optimizer instances.
+
+```python
+optimizer = BetterTogether(
+    metric=my_metric,
+    p=dspy.MIPROv2(metric=my_metric),
+    w=BootstrapFinetune(metric=my_metric),
+)
+
+result = optimizer.compile(
+    program,
+    trainset=train,
+    valset=dev,
+    strategy='p -> w',
+    optimizer_compile_args={
+        'p': {'num_trials': 15, 'max_bootstrapped_demos': 6},
+    }
+)
+```
+
+## Working with Candidate Programs
+
+After `compile` returns, `result.candidate_programs` is a list of all intermediate programs produced across optimization stages, sorted by descending validation score. Inspect them to understand how much each stage contributed, or ensemble the top candidates for additional robustness.
+
+```python
+# Print each stage and its score
+for candidate in result.candidate_programs:
+    print(candidate['strategy'], candidate['score'])
+
+# Take the best program
+best = result.candidate_programs[0]
+```
+
+<Tip>
+Validate that `val_data` is strictly held out from `train_data` before running BetterTogether. The optimizer uses the validation set to rank candidate programs across all stages — if any training examples appear in the val set, the selected program will be overfit and real-world performance will be lower than reported.
+</Tip>
+
+<Info>
+BetterTogether is most effective with 100 or more training examples. Below that threshold, fine-tuning typically does not produce reliable weight updates, and you will get better returns from MIPROv2 or GEPA alone.
+</Info>

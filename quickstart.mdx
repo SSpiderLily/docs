@@ -1,47 +1,147 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: Get Started with PromptOpt in 5 Minutes
+sidebarTitle: Quickstart
+description: Build and optimize your first language model program with PromptOpt and DSPy in under five minutes using a simple classification example.
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+In this guide, you will build a sentiment classifier, run it against a product review, and then optimize it automatically using a small set of labeled examples — all without writing a single prompt by hand. By the end, you will have a saved, optimized program you can reload and reuse in production.
 
 ## Prerequisites
 
-Before you begin, you must have:
+Before you begin, make sure you have the following ready:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+- **Python 3.10 or higher** installed on your machine
+- **pip** available in your terminal
+- An **OpenAI API key** (or a key for another supported provider — see [Installation](/installation) for alternatives)
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+### Install DSPy
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+Open your terminal and install the `dspy` package:
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
-</Steps>
+```bash
+pip install dspy
+```
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  Need optional extras such as vector store integrations or additional model
+  providers? Install them all at once with `pip install dspy[all]`.
 </Tip>
+
+### Configure a Language Model
+
+Import DSPy and point it at the model you want to use. PromptOpt routes all LM calls through DSPy's unified `dspy.LM` interface, so swapping providers later requires only a single line change.
+
+```python
+import dspy
+
+lm = dspy.LM('openai/gpt-4o-mini', api_key='YOUR_API_KEY')
+dspy.configure(lm=lm)
+```
+
+<Note>
+  You can set the `OPENAI_API_KEY` environment variable instead of passing
+  `api_key` directly. See [Installation](/installation) for a full list of
+  supported providers.
+</Note>
+
+### Define a Signature
+
+A **Signature** tells PromptOpt what inputs your program accepts and what outputs it should produce. DSPy uses the field names, types, and descriptions to construct and optimize prompts automatically — you never write a template yourself.
+
+```python
+class SentimentClassifier(dspy.Signature):
+    """Classify the sentiment of a product review."""
+
+    review: str = dspy.InputField()
+    sentiment: str = dspy.OutputField(desc="positive, negative, or neutral")
+    confidence: float = dspy.OutputField(desc="confidence score between 0 and 1")
+```
+
+### Create a Module and Run It
+
+Wrap the signature in a `dspy.Predict` module, then call it like an ordinary Python function. PromptOpt handles prompt construction, LM invocation, and output parsing for you.
+
+```python
+classify = dspy.Predict(SentimentClassifier)
+
+result = classify(review="The product exceeded all my expectations!")
+print(result.sentiment)    # positive
+print(result.confidence)   # 0.97
+```
+
+<Tip>
+  `dspy.Predict` is the simplest module type. For tasks that benefit from
+  step-by-step reasoning, try `dspy.ChainOfThought` with the same signature —
+  the rest of your code stays identical.
+</Tip>
+
+### Optimize with BootstrapFewShot
+
+Raw `Predict` modules work out of the box, but **optimizers** push performance further by automatically selecting high-quality few-shot demonstrations. Provide a small labeled training set and let `BootstrapFewShot` do the rest.
+
+```python
+train_data = [
+    dspy.Example(review="Great quality, fast delivery!", sentiment="positive").with_inputs("review"),
+    dspy.Example(review="Broke after one week.", sentiment="negative").with_inputs("review"),
+    dspy.Example(review="It works as described.", sentiment="neutral").with_inputs("review"),
+    # add more examples for better results
+]
+
+def accuracy_metric(example, prediction, trace=None):
+    return prediction.sentiment == example.sentiment
+
+from dspy.teleprompt import BootstrapFewShot
+
+optimizer = BootstrapFewShot(metric=accuracy_metric, max_bootstrapped_demos=3)
+optimized = optimizer.compile(classify, trainset=train_data)
+```
+
+<Info>
+  `BootstrapFewShot` runs your program on the training examples, collects
+  traces where the metric passes, and uses those traces as demonstrations in the
+  final prompt. No gradient descent — just smart example selection.
+</Info>
+
+### Save and Reuse
+
+Persist your optimized program to disk as a JSON file. Load it back in any environment without re-running the optimizer.
+
+```python
+optimized.save('sentiment_v1.json')
+
+# Later, in another script or service:
+classify_v2 = dspy.Predict(SentimentClassifier)
+classify_v2.load('sentiment_v1.json')
+```
+
+<Warning>
+  Always save after optimizing. Running `BootstrapFewShot` (or any optimizer)
+  consumes LM calls. Reloading a saved program is free and instantaneous.
+</Warning>
+
+</Steps>
+
+## What's Next?
+
+You have a working, optimized classifier. Explore these topics to go further:
+
+<CardGroup cols={2}>
+  <Card title="Signatures" icon="pen-line" href="/concepts/signatures">
+    Learn how to model complex inputs, outputs, and constraints using DSPy
+    Signatures — the foundation of every PromptOpt program.
+  </Card>
+  <Card title="Optimizers" icon="sliders" href="/concepts/optimizers">
+    Understand the full optimizer landscape: when to use BootstrapFewShot,
+    MIPROv2, BayesianSignatureOptimizer, and more.
+  </Card>
+  <Card title="Build a RAG Pipeline" icon="database" href="/guides/rag-pipeline">
+    Combine retrieval and generation into a multi-step program and optimize the
+    whole pipeline end-to-end with a single metric.
+  </Card>
+  <Card title="Optimizers Overview" icon="book-open" href="/optimizers/overview">
+    Compare all available optimizers by task type, dataset size, and compute
+    budget to choose the right one for your use case.
+  </Card>
+</CardGroup>

@@ -1,0 +1,146 @@
+---
+title: "Frequently Asked Questions About PromptOpt and DSPy"
+sidebarTitle: "FAQ"
+description: "Quick answers on PromptOpt and DSPy: how optimization works, how much data you need, model compatibility, API costs, and framework comparisons."
+---
+
+Here are quick answers to the questions that come up most often when teams start building with PromptOpt and DSPy. If you don't find what you need, check the [Troubleshooting](/troubleshooting) page or open an issue on GitHub.
+
+<AccordionGroup>
+  <Accordion title="How is PromptOpt different from LangChain or LlamaIndex?">
+    LangChain and LlamaIndex focus on **chaining** LLM calls — they give you components for retrieval, memory, and routing that you wire together manually. PromptOpt (powered by DSPy) focuses on **automatically improving** the quality of those calls through optimization.
+
+    The two approaches complement each other. You can use DSPy alongside LangChain or LlamaIndex — DSPy's optimizer can compile a program that internally calls a LangChain retriever, for example, and optimize the prompts that drive it without touching the retriever's logic.
+
+    <Info>
+      Think of it this way: LangChain/LlamaIndex build the pipeline, PromptOpt tunes it. You don't have to choose between them.
+    </Info>
+  </Accordion>
+
+  <Accordion title="How many training examples do I need?">
+    The minimum depends on which optimizer you use:
+
+    | Optimizer | Minimum | Recommended |
+    |---|---|---|
+    | BootstrapFewShot | 5–10 | 20+ |
+    | MIPROv2 | 20 | 50+ |
+    | GEPA | 20 | 50+ |
+    | BootstrapFinetune | 100 | 500+ |
+
+    Even incomplete labels help — that is, examples with inputs but no expected outputs. Several optimizers bootstrap their own demonstrations by running your program on unlabeled inputs and keeping the traces that score well on your metric.
+
+    <Tip>
+      Start with whatever labeled data you have. A BootstrapFewShot run on 10 examples often delivers meaningful improvement and gives you a baseline to measure against once you collect more data.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Does optimization cost a lot of API credits?">
+    Optimization cost scales with four factors: program complexity, dataset size, optimizer type, and the budget setting you choose (`auto='light'`, `'medium'`, or `'heavy'`).
+
+    As a rough benchmark, a `light` MIPROv2 run on a simple single-module program with 50 examples typically costs **$0.50–$5** using GPT-4o-mini. A complex multi-step pipeline with a `heavy` budget on a larger model costs proportionally more.
+
+    Two things keep costs manageable:
+
+    - **Caching** — DSPy caches every LM call on disk. If you re-run optimization with the same prompts and data, cached calls are free.
+    - **Budget control** — `auto='light'` is a great starting point. Upgrade to `'medium'` or `'heavy'` only after you've confirmed your metric and data are solid.
+
+    <Note>
+      Always run a `light` pass first to validate your setup before committing to a larger budget. You can always re-run with `auto='heavy'` once you're confident everything is wired correctly.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Can I use PromptOpt with open-source or local models?">
+    Yes. Any model accessible via Ollama, HuggingFace, or any LiteLLM-supported endpoint works as the task model. Configure it with the appropriate `dspy.LM` call:
+
+    ```python
+    import dspy
+
+    # Ollama running locally
+    lm = dspy.LM(
+        'ollama_chat/llama3.1',
+        api_base='http://localhost:11434',
+    )
+    dspy.configure(lm=lm)
+    ```
+
+    Local models are well-suited for the **task model** — the model your compiled program calls at inference time. For the meta-level optimization steps, such as GEPA's `reflection_lm` or MIPROv2's `prompt_model`, you may get better results from a stronger hosted model like GPT-4o or Claude, since those steps require more complex instruction-following.
+
+    <Info>
+      You can mix models within a single program. Set a fast local model as the default `lm` and pass a stronger hosted model to the optimizer's `prompt_model` parameter for best results.
+    </Info>
+  </Accordion>
+
+  <Accordion title="Can I optimize a program with multiple LLM calls?">
+    Yes — and this is one of DSPy's core strengths. When you compile a multi-module program, the optimizer tunes **every** module's prompt simultaneously rather than treating the pipeline as a black box.
+
+    A three-step RAG pipeline — query rewriting, passage retrieval, and answer synthesis — gets all three prompts optimized together, so improvements in one step reinforce the others. You don't have to optimize each module independently or manually coordinate the changes.
+
+    <Tip>
+      For multi-module programs, start by getting each module working correctly in isolation before running optimization. Use `dspy.Evaluate` on your full pipeline to establish a baseline, then compile and compare.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="How do I know which optimizer to use?">
+    See the [Optimizer Overview](/optimizers/overview) for a full decision guide and side-by-side comparison. As a quick rule of thumb:
+
+    - **BootstrapFewShot** — start here for any new task. Fast, low-cost, and surprisingly effective as a baseline.
+    - **MIPROv2** — use this for production when you want the optimizer to also rewrite your instructions, not just select few-shot demos.
+    - **GEPA** — best when your metric produces natural-language feedback, not just a numeric score. The feedback loop drives stronger instruction improvements.
+    - **BetterTogether** — reach for this when you have 100+ examples and want to combine prompt optimization with weight fine-tuning for maximum quality.
+
+    <Note>
+      When in doubt, run BootstrapFewShot first. It takes minutes, costs almost nothing, and tells you how much headroom exists for a more expensive optimizer to improve on.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Can I version and share optimized programs?">
+    Yes. Save all optimized parameters — including synthesized instructions and few-shot demonstrations — to a single JSON file:
+
+    ```python
+    # Save after optimization
+    compiled_program.save('program_v1.json')
+
+    # Load anywhere with the same program architecture
+    program.load('program_v1.json')
+    ```
+
+    Commit `program_v1.json` to version control alongside your source code. Anyone on your team with the same `dspy.Module` class definition can load the file and get the exact same optimized behavior without re-running compilation.
+
+    <Tip>
+      Name your saved files to reflect the optimizer, model, and date — for example `rag_miprov2_gpt4o_2025-01.json`. This makes it easy to compare versions and roll back if a re-optimization regresses.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="What happens when I update my model or switch providers?">
+    Saved programs store the **optimized prompts and few-shot demonstrations**, not model-specific weights. This means they are largely portable — but prompts tuned for one model may not perform optimally on a different one, especially when switching model families.
+
+    When you switch models or providers, re-run optimization. With `auto='light'`, this typically takes only a few minutes and a small API spend. The improvement over re-using stale prompts is usually significant, particularly when moving between model families such as from GPT-4o to Claude or to a local Llama model.
+
+    <Info>
+      Keep your old saved programs when switching models. Running both the old and newly optimized versions through `dspy.Evaluate` on your test set gives you a clear before-and-after picture of what changed.
+    </Info>
+  </Accordion>
+
+  <Accordion title="Is it safe to use LM-as-judge metrics?">
+    Yes, LM-as-judge metrics work well with PromptOpt — but keep a few stability considerations in mind.
+
+    LLM judges can be non-deterministic: the same prediction may score differently across calls. To reduce noise, enable DSPy's caching so that identical judge calls return the same cached result, and consider averaging multiple judge calls for high-stakes evaluations.
+
+    GEPA is particularly well-matched to LM-judge metrics that return **detailed textual feedback** alongside a score. That feedback becomes the signal GEPA uses to rewrite instructions, making the optimization loop much more targeted than a plain numeric score allows.
+
+    ```python
+    def lm_judge_metric(example, prediction, trace=None):
+        judge = dspy.Predict('question, answer -> score: float, feedback: str')
+        result = judge(
+            question=example.question,
+            answer=prediction.answer,
+        )
+        # Return only the numeric score for the optimizer
+        return float(result.score)
+    ```
+
+    <Warning>
+      Avoid using the same model for both your task and your judge — the judge may be biased toward outputs that resemble its own generation style, which can inflate scores without reflecting real quality improvements.
+    </Warning>
+  </Accordion>
+</AccordionGroup>

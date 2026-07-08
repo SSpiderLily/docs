@@ -1,0 +1,116 @@
+---
+title: "dspy.Module — Base Class for Custom DSPy Programs"
+sidebarTitle: "Module"
+description: "dspy.Module is the base class for building custom, composable DSPy programs. Subclass it to combine multiple signatures and modules into a single optimizable pipeline."
+---
+
+Every custom DSPy program is a subclass of `dspy.Module`. The base class gives your program two things: a consistent interface that optimizers know how to inspect and rewrite, and automatic discovery of every `Predict`, `ChainOfThought`, `ReAct`, or nested `Module` you assign as an attribute in `__init__`. You define your program's logic in `forward`, and DSPy takes care of the rest — wiring up optimization, serialization, and LM routing across the entire pipeline.
+
+## Minimal Example
+
+```python
+import dspy
+
+class MyPipeline(dspy.Module):
+    def __init__(self):
+        # Declare all sub-modules as attributes
+        self.step1 = dspy.ChainOfThought('input -> intermediate')
+        self.step2 = dspy.Predict('intermediate -> output')
+
+    def forward(self, input):
+        mid = self.step1(input=input)
+        return self.step2(intermediate=mid.intermediate)
+
+pipeline = MyPipeline()
+result = pipeline(input='...')
+```
+
+## Key Methods
+
+<ResponseField name="forward(**kwargs)" type="method" required>
+  Defines the program's execution logic. This is the only method you are required to implement. Calling the module instance (e.g., `pipeline(input='...')`) delegates to `forward` automatically.
+</ResponseField>
+
+<ResponseField name="set_lm(lm)" type="method">
+  Overrides the language model for this module and all sub-modules it contains. Individual sub-modules can be given their own LM afterward to selectively override the default.
+</ResponseField>
+
+<ResponseField name="save(path)" type="method">
+  Serializes the module's optimized parameters — including few-shot demonstrations and rewritten instructions — to a JSON file at the given path.
+</ResponseField>
+
+<ResponseField name="load(path)" type="method">
+  Restores optimized parameters from a JSON file previously written by `save`. Call this to reuse a compiled program without re-running the optimizer.
+</ResponseField>
+
+<ResponseField name="named_predictors()" type="method">
+  Returns all predictor sub-modules (instances of `dspy.Predict`, `dspy.ChainOfThought`, etc.) as a list of `(name, module)` pairs. Useful for inspection and selective configuration.
+</ResponseField>
+
+<ResponseField name="predictors()" type="method">
+  Returns all predictor sub-modules as a flat list, without names. Convenient when you only need to iterate over predictors without caring about their attribute path.
+</ResponseField>
+
+## Setting LMs at Different Levels
+
+`set_lm` lets you assign models at the pipeline level and then selectively override individual steps — a common pattern when you want a small model for cheap steps and a larger model for steps that need more capability.
+
+```python
+lm_big = dspy.LM('openai/gpt-4o')
+lm_small = dspy.LM('openai/gpt-4o-mini')
+
+pipeline = MyPipeline()
+pipeline.set_lm(lm_small)          # set default for all steps
+pipeline.step1.set_lm(lm_big)      # override step1 to use bigger model
+```
+
+## Inspecting Sub-Modules
+
+Use `named_predictors()` to iterate over every predictor in the pipeline. This is helpful for logging the state of each step after optimization or for applying the same configuration change across all predictors.
+
+```python
+for name, predictor in pipeline.named_predictors():
+    print(name, predictor)
+    # e.g.:
+    # step1 ChainOfThought(...)
+    # step2 Predict(...)
+```
+
+## Composing Modules
+
+You can nest one `dspy.Module` inside another to build layered pipelines. The outer module discovers and tracks all predictors in nested modules automatically.
+
+```python
+class TwoStageRAG(dspy.Module):
+    def __init__(self, retriever):
+        self.retrieve = retriever
+        self.rerank = dspy.Predict('query, docs -> top_docs')
+        self.generate = dspy.ChainOfThought('context, question -> answer')
+
+    def forward(self, question):
+        raw_docs = self.retrieve(question)
+        reranked = self.rerank(query=question, docs=raw_docs)
+        return self.generate(context=reranked.top_docs, question=question)
+```
+
+## Saving and Loading Optimized Parameters
+
+After compiling a module with an optimizer, serialize the results so you can reload them later without re-running the (potentially expensive) optimization process.
+
+<CodeGroup>
+
+```python Save
+optimized_pipeline = optimizer.compile(pipeline, trainset=train)
+optimized_pipeline.save('pipeline_optimized.json')
+```
+
+```python Load
+fresh_pipeline = MyPipeline()
+fresh_pipeline.load('pipeline_optimized.json')
+```
+
+</CodeGroup>
+
+<Tip>
+  Always declare sub-modules in `__init__`. Any module assigned outside of `__init__` — for example, inside `forward` — will not be discovered by the optimizer and its parameters will not be tuned or saved.
+</Tip>

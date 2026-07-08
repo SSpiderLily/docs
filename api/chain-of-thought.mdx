@@ -1,0 +1,75 @@
+---
+title: "dspy.ChainOfThought — Step-by-Step Reasoning Module"
+sidebarTitle: "ChainOfThought"
+description: "dspy.ChainOfThought adds a reasoning step before generating the final output, improving accuracy on tasks that require multi-step logic or complex deductions."
+---
+
+`dspy.ChainOfThought` wraps your signature with an automatic `reasoning` field that the model fills in before it produces your declared output fields. By externalizing its intermediate thinking, the model makes fewer logical errors on analytical, mathematical, and multi-step tasks. The reasoning field is fully visible to you at runtime and is included in the examples that optimizers use when selecting few-shot demonstrations.
+
+## Basic Usage
+
+Pass a signature string or class to `dspy.ChainOfThought` exactly as you would with `dspy.Predict`. The module inserts the reasoning field for you — you do not need to declare it on your signature.
+
+```python
+import dspy
+
+solve = dspy.ChainOfThought('problem -> solution')
+result = solve(problem='If x + 5 = 12, what is x?')
+print(result.reasoning)  # 'To solve for x: x = 12 - 5 = 7'
+print(result.solution)   # '7'
+```
+
+## With a Class-Based Signature
+
+Using a class-based signature gives you typed output fields, field descriptions, and a clear task instruction, all of which the optimizer can rewrite to improve performance.
+
+```python
+class MathProblem(dspy.Signature):
+    """Solve the math problem step by step."""
+    problem: str = dspy.InputField()
+    solution: str = dspy.OutputField(desc='The final numerical answer')
+
+solve = dspy.ChainOfThought(MathProblem)
+```
+
+## Accessing the Reasoning Field
+
+The `reasoning` attribute on the result contains the model's full intermediate work. You can log it, display it to end users, or use it as input to a downstream module.
+
+```python
+result = solve(problem='A train travels 120km in 2 hours. What is its speed?')
+print(result.reasoning)  # internal step-by-step thinking
+print(result.solution)   # 60 km/h
+```
+
+## `rationale_type` Parameter
+
+By default, `ChainOfThought` adds a field named `reasoning` with a generic description. You can override this with the `rationale_type` parameter to control the field's description and thereby steer the style of the model's intermediate thinking.
+
+```python
+# Default adds a 'reasoning' field. Override with a different name/type:
+solve = dspy.ChainOfThought(MathProblem, rationale_type=dspy.OutputField(desc='Step-by-step work'))
+```
+
+<Note>
+  The `rationale_type` parameter accepts a `dspy.OutputField` instance. The field name in the prompt is always `reasoning` regardless of the `desc` you provide — `rationale_type` only changes the description hint shown to the model.
+</Note>
+
+## When to Use ChainOfThought vs Predict
+
+Choosing between the two modules comes down to task complexity and cost tolerance.
+
+| | `dspy.Predict` | `dspy.ChainOfThought` |
+|---|---|---|
+| **Best for** | Classification, extraction, simple Q&A | Math, logic, multi-step reasoning |
+| **Token cost** | Lower — outputs only | Higher — reasoning + outputs |
+| **Accuracy on complex tasks** | Lower | Higher |
+| **Latency** | Faster | Slower |
+
+- Use `Predict` for simple, fast tasks such as classification and extraction with clear patterns.
+- Use `ChainOfThought` when the task requires reasoning, math, or multi-step logic.
+- ChainOfThought costs more tokens but typically delivers meaningfully higher accuracy on complex tasks.
+
+<Tip>
+  If you are unsure which to use, start with `ChainOfThought`. Once you have a working, optimized pipeline, you can swap individual steps to `Predict` and measure whether quality drops — many extraction tasks perform equally well at lower cost.
+</Tip>

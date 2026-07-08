@@ -1,0 +1,72 @@
+---
+title: "PromptOpt: Automated Prompt Optimization with DSPy"
+sidebarTitle: "Introduction"
+description: "PromptOpt is a prompt optimization system built on DSPy. Replace hand-crafted prompts with typed signatures and let optimizers tune your LLM programs automatically."
+---
+
+PromptOpt gives you a systematic way to build and improve language model programs. Instead of hand-tweaking prompt strings, you write Python code using typed **Signatures**, compose it with **Modules**, and run **Optimizers** that automatically tune your prompts and few-shot examples against a metric you define. The result is higher accuracy, lower cost, and programs that stay reliable when models change.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build and optimize your first program in under 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/signatures">
+    Learn signatures, modules, and optimizers — the three building blocks
+  </Card>
+  <Card title="Optimizer Guide" icon="wand-magic-sparkles" href="/optimizers/overview">
+    Choose the right optimizer for your use case
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/signature">
+    Complete reference for every class and method
+  </Card>
+</CardGroup>
+
+## Why PromptOpt?
+
+Hand-crafted prompts are brittle. Small wording changes produce wildly different outputs, prompts are tied to a specific model, and improving performance means endless manual trial-and-error. PromptOpt solves this by treating your LLM program as something that can be **compiled and optimized** — the same way you'd train a neural network.
+
+<CardGroup cols={3}>
+  <Card title="Declarative" icon="pen-to-square">
+    Describe *what* your task needs, not *how* to prompt. Signatures give you typed inputs and outputs instead of fragile prompt strings.
+  </Card>
+  <Card title="Composable" icon="puzzle-piece">
+    Build pipelines from reusable modules. Swap `Predict` for `ChainOfThought` or `ReAct` without rewriting your task logic.
+  </Card>
+  <Card title="Self-Improving" icon="chart-line">
+    Optimizers like MIPROv2 and GEPA automatically synthesize better instructions and few-shot examples from your training data.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+<Steps>
+  <Step title="Define a Signature">
+    Declare the inputs and outputs your task requires using typed Python classes.
+  </Step>
+  <Step title="Build a Program">
+    Compose modules (`Predict`, `ChainOfThought`, `ReAct`) into a pipeline using ordinary Python.
+  </Step>
+  <Step title="Write a Metric">
+    Provide a scoring function that tells the optimizer what "good output" means for your task.
+  </Step>
+  <Step title="Compile and Optimize">
+    Run an optimizer with your training data. It explores prompt variations and keeps the best-performing ones.
+  </Step>
+  <Step title="Save and Deploy">
+    Save your optimized program to a JSON file and load it anywhere without re-running optimization.
+  </Step>
+</Steps>
+
+## What You Can Build
+
+PromptOpt works for any task you can express as a language model program:
+
+- **Classification** — route support tickets, moderate content, label sentiment
+- **Extraction** — pull structured data from emails, documents, or web pages
+- **RAG pipelines** — retrieval-augmented generation with automatically optimized queries and synthesis prompts
+- **Agents** — tool-using agents where the reasoning loop is optimized, not just the final step
+- **Summarization and generation** — tasks with complex, multi-criteria quality measures
+
+<Tip>
+  New to PromptOpt? Head to the [Quick Start](/quickstart) to build and optimize your first program in minutes.
+</Tip>

@@ -1,0 +1,128 @@
+---
+title: "BootstrapFewShot — Automatic Demo Selection API"
+sidebarTitle: "BootstrapFewShot"
+description: "BootstrapFewShot auto-generates few-shot demonstrations for every module in your DSPy program by running your program and filtering traces by metric score."
+---
+
+`BootstrapFewShot` is the fastest way to improve a DSPy program when you have only a handful of labeled examples. Rather than requiring you to hand-craft demonstrations, it runs your program on the training set, collects the execution traces, and keeps any trace where the final output passes your metric. Those successful traces become the few-shot examples injected into each module at inference time. No instruction rewriting happens — the payoff is purely from high-quality, automatically selected demonstrations added with minimal data and compute requirements.
+
+## Import Path and Variants
+
+DSPy ships four demo-focused optimizers in `dspy.teleprompt`. Import only what you need:
+
+```python
+from dspy.teleprompt import (
+    BootstrapFewShot,
+    BootstrapFewShotWithRandomSearch,
+    LabeledFewShot,
+    KNNFewShot,
+)
+```
+
+---
+
+## `BootstrapFewShot`
+
+The base optimizer. It runs one bootstrapping pass and selects the best demos found.
+
+### Constructor Parameters
+
+<ParamField path="metric" type="callable" required>
+  A scoring function with signature `(example, prediction, trace) -> float | bool`. Only traces that pass this metric are kept as demonstrations.
+</ParamField>
+
+<ParamField path="max_bootstrapped_demos" type="int" default="4">
+  Maximum number of auto-generated demonstrations to include per module. Increasing this adds more few-shot context but also grows the prompt size.
+</ParamField>
+
+<ParamField path="max_labeled_demos" type="int" default="4">
+  Maximum number of labeled examples pulled directly from `trainset` to use as demonstrations per module.
+</ParamField>
+
+<ParamField path="max_rounds" type="int" default="1">
+  Number of bootstrapping rounds to run. Additional rounds use the output of the previous round as the teacher, which can surface higher-quality traces for harder tasks.
+</ParamField>
+
+<ParamField path="teacher_settings" type="dict" default="{}">
+  Settings dictionary passed to the teacher program during bootstrapping. Use this to configure a stronger LM for the teacher than you use for the student.
+</ParamField>
+
+```python
+from dspy.teleprompt import BootstrapFewShot
+
+optimizer = BootstrapFewShot(
+    metric=my_metric,
+    max_bootstrapped_demos=3,
+    max_labeled_demos=4,
+)
+optimized = optimizer.compile(program, trainset=train)
+```
+
+---
+
+## `BootstrapFewShotWithRandomSearch`
+
+An extended version that generates multiple candidate programs — each with a different random subset of bootstrapped demos — and returns the one that scores highest on your training set. Use this when you want better demo selection quality and have the compute budget for it.
+
+### Additional Parameter
+
+<ParamField path="num_candidate_programs" type="int" default="8">
+  Number of randomly sampled demo configurations to evaluate. Higher values explore more of the demo space at the cost of more LM calls.
+</ParamField>
+
+```python
+from dspy.teleprompt import BootstrapFewShotWithRandomSearch
+
+optimizer = BootstrapFewShotWithRandomSearch(
+    metric=my_metric,
+    num_candidate_programs=10,
+    num_threads=4,
+)
+optimized = optimizer.compile(program, trainset=train)
+```
+
+---
+
+## `LabeledFewShot`
+
+The simplest optimizer. It skips bootstrapping entirely and selects `k` examples directly from your labeled `trainset` to use as static few-shot demonstrations. Use this when your trainset examples are already high-quality and you just want them injected into every module.
+
+<ParamField path="k" type="int" required>
+  Number of labeled examples to sample from `trainset` and use as demonstrations per module.
+</ParamField>
+
+```python
+from dspy.teleprompt import LabeledFewShot
+
+optimizer = LabeledFewShot(k=8)
+optimized = optimizer.compile(program, trainset=labeled_data)
+```
+
+---
+
+## `KNNFewShot`
+
+Instead of a fixed set of demos, `KNNFewShot` selects demonstrations at inference time by finding the `k` training examples most similar to the current input using k-nearest-neighbor retrieval. This is particularly effective when your task spans diverse input types and a single fixed demo set would not generalize well across all of them.
+
+<ParamField path="k" type="int" required>
+  Number of nearest-neighbor examples to retrieve and inject as demonstrations for each inference call.
+</ParamField>
+
+<ParamField path="trainset" type="list[dspy.Example]" required>
+  The pool of labeled examples to search over at inference time.
+</ParamField>
+
+```python
+from dspy.teleprompt import KNNFewShot
+
+optimizer = KNNFewShot(k=5, trainset=train)
+optimized = optimizer.compile(program, trainset=train)
+```
+
+<Tip>
+  `KNNFewShot` dynamically selects demos at inference time, so it adds a small retrieval overhead per call. For latency-sensitive applications, `BootstrapFewShot` with static demos is faster.
+</Tip>
+
+<Note>
+  All four variants share the same `compile(program, trainset)` interface, making it straightforward to swap between them when experimenting.
+</Note>

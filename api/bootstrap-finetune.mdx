@@ -1,0 +1,102 @@
+---
+title: "BootstrapFinetune — LM Weight Fine-Tuning Optimizer"
+sidebarTitle: "BootstrapFinetune"
+description: "BootstrapFinetune generates a fine-tuning dataset from your program's traces and uses it to update model weights, enabling smaller models to match larger ones."
+---
+
+Prompt optimization improves a model's behavior by changing the instructions it receives, but it leaves the model's weights untouched. `BootstrapFinetune` goes one step further: it runs your program on the training set, collects the traces where the output passes your metric, converts those traces into a supervised fine-tuning dataset, and submits that dataset to your LM provider to update the model's weights. This is the right approach when you need to compress knowledge from a large teacher model into a smaller, cheaper model — or when the task is complex enough that no prompt alone reliably elicits the correct behavior.
+
+## Import
+
+```python
+from dspy.teleprompt import BootstrapFinetune
+```
+
+---
+
+## Constructor
+
+```python
+optimizer = BootstrapFinetune(
+    metric,
+    target,
+    epochs=1,
+    learning_rate=5e-5,
+    num_threads=4,
+    teacher_settings={},
+)
+```
+
+### Parameters
+
+<ParamField path="metric" type="callable" required>
+  A scoring function with signature `(example, prediction, trace) -> float | bool`. Only traces that pass this metric are included in the fine-tuning dataset.
+</ParamField>
+
+<ParamField path="target" type="str" required>
+  The model identifier to fine-tune, in LiteLLM format (e.g., `'openai/gpt-4o-mini'`). This must match the model your student program's LM is pointing to.
+</ParamField>
+
+<ParamField path="epochs" type="int" default="1">
+  Number of fine-tuning epochs. Increasing epochs gives the model more exposure to the training data but risks overfitting on small datasets.
+</ParamField>
+
+<ParamField path="learning_rate" type="float" default="5e-5">
+  Learning rate for the fine-tuning job. The default is a safe starting point for most tasks; lower values produce more conservative updates.
+</ParamField>
+
+<ParamField path="num_threads" type="int" default="4">
+  Number of parallel threads used when bootstrapping traces from the training set before fine-tuning begins.
+</ParamField>
+
+---
+
+## Setting the LM Explicitly
+
+Because `BootstrapFinetune` needs to know exactly which model to fine-tune, you must set the LM on your student program directly via `set_lm()` rather than relying on the global `dspy.configure()` setting. If you skip this step, `BootstrapFinetune` cannot determine which model to target.
+
+```python
+from dspy.teleprompt import BootstrapFinetune
+import dspy
+
+lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
+program = MyProgram()
+program.set_lm(lm)  # required
+
+optimizer = BootstrapFinetune(
+    metric=my_metric,
+    target='openai/gpt-4o-mini',
+    epochs=2,
+)
+
+finetuned = optimizer.compile(program, trainset=train)
+finetuned.save('program_finetuned.json')
+```
+
+---
+
+## `compile()` Method
+
+`compile(student, trainset)` bootstraps traces, builds the fine-tuning dataset, submits the fine-tuning job to your provider, waits for it to complete, and returns a new program whose LM points to the fine-tuned model checkpoint.
+
+<ParamField path="student" type="dspy.Module" required>
+  The program to fine-tune. All LMs inside the program must be set via `set_lm()`.
+</ParamField>
+
+<ParamField path="trainset" type="list[dspy.Example]" required>
+  Training examples used to generate the fine-tuning dataset. More examples generally produce better fine-tuned models; aim for at least a few hundred passing traces.
+</ParamField>
+
+---
+
+<Warning>
+  Fine-tuning modifies model weights on your provider's infrastructure — charges apply. Check your provider's fine-tuning pricing before running `BootstrapFinetune`, and keep in mind that the cost scales with dataset size and the number of epochs.
+</Warning>
+
+<Note>
+  Not all providers support weight fine-tuning. The OpenAI fine-tuning API and HuggingFace are the most common targets. Local Ollama models typically do not support fine-tuning — for local workflows, consider using prompt optimization with `MIPROv2` or `GEPA` instead.
+</Note>
+
+<Tip>
+  Combining `BootstrapFinetune` with a prompt optimizer in a `BetterTogether` pipeline often yields the best results. Run prompt optimization first to identify the highest-quality traces, then fine-tune on those traces to bake the behavior into the model's weights.
+</Tip>

@@ -1,0 +1,133 @@
+---
+title: "Build Your First DSPy Prompt Optimization Program"
+sidebarTitle: First Program
+description: "Learn to build a complete DSPy program from scratch — define a signature, pick a module, write a metric, and compile it with an optimizer."
+---
+
+In this guide, you'll build a working question-answering program using DSPy, test it without any optimization, then run it through an optimizer to measurably improve its output quality — all in under 50 lines of code.
+
+<Steps>
+  <Step title="Set up DSPy and configure your language model">
+    Install DSPy and point it at the model you want to use. Every DSPy program needs a configured language model before it can run any inference.
+
+    ```python
+    import dspy
+
+    dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+    ```
+  </Step>
+
+  <Step title="Define the task signature">
+    A signature tells DSPy what your program takes as input and what it should produce as output. Think of it as a typed contract between your code and the language model.
+
+    ```python
+    class QuestionAnswer(dspy.Signature):
+        """Answer the question based on the provided context."""
+        context: str = dspy.InputField(desc='Relevant facts and background')
+        question: str = dspy.InputField()
+        answer: str = dspy.OutputField(desc='A direct, concise answer')
+    ```
+  </Step>
+
+  <Step title="Create a module">
+    Wrap your signature in a DSPy module. `ChainOfThought` prompts the model to reason step by step before producing the final answer, which typically yields better results than direct prompting.
+
+    ```python
+    qa = dspy.ChainOfThought(QuestionAnswer)
+    ```
+  </Step>
+
+  <Step title="Test without optimization">
+    Run your program with a sample input to confirm everything is wired up correctly. At this stage the model uses a generic default prompt — no few-shot examples, no tuned instructions.
+
+    ```python
+    result = qa(
+        context='Paris is the capital of France and has a population of about 2.1 million.',
+        question='What is the population of Paris?'
+    )
+    print(result.answer)  # About 2.1 million
+    ```
+  </Step>
+
+  <Step title="Build a training set">
+    Optimization requires labeled examples. Each `dspy.Example` pairs inputs with the expected output, and `.with_inputs()` marks which fields are inputs so DSPy knows what to feed the model during optimization.
+
+    ```python
+    train = [
+        dspy.Example(
+            context='Mount Everest, at 8,849 m, is the highest peak on Earth.',
+            question='How tall is Mount Everest?',
+            answer='8,849 meters'
+        ).with_inputs('context', 'question'),
+        dspy.Example(
+            context='The speed of light is approximately 299,792 km per second.',
+            question='How fast does light travel?',
+            answer='299,792 kilometers per second'
+        ).with_inputs('context', 'question'),
+        # Add at least 10-20 examples for reliable optimization
+    ]
+    ```
+  </Step>
+
+  <Step title="Define a metric">
+    The metric is a Python function that scores each prediction. The optimizer calls it repeatedly during compilation to judge which prompt candidates and demonstrations are working best.
+
+    ```python
+    def answer_quality(example, prediction, trace=None):
+        gold = example.answer.lower().strip()
+        pred = prediction.answer.lower().strip()
+        # Reward exact or near-exact matches
+        if gold in pred or pred in gold:
+            return 1.0
+        # Partial credit for overlapping key words
+        gold_words = set(gold.split())
+        pred_words = set(pred.split())
+        overlap = len(gold_words & pred_words) / max(len(gold_words), 1)
+        return overlap * 0.5
+    ```
+  </Step>
+
+  <Step title="Optimize your program">
+    Pass your module, training set, and metric to `BootstrapFewShot`. The optimizer runs your training examples, selects the best few-shot demonstrations, and compiles them into an improved version of your program.
+
+    ```python
+    from dspy.teleprompt import BootstrapFewShot
+
+    optimizer = BootstrapFewShot(metric=answer_quality, max_bootstrapped_demos=4)
+    optimized_qa = optimizer.compile(qa, trainset=train)
+    ```
+  </Step>
+
+  <Step title="Compare before and after">
+    Evaluate both the baseline and the optimized program against a held-out development set to quantify the improvement. Use `dspy.Evaluate` to run the comparison efficiently across multiple threads.
+
+    ```python
+    evaluate = dspy.Evaluate(devset=dev_set, metric=answer_quality, num_threads=4)
+    baseline_score = evaluate(qa)
+    optimized_score = evaluate(optimized_qa)
+    print(f'Baseline: {baseline_score:.1%}')
+    print(f'Optimized: {optimized_score:.1%}')
+    ```
+  </Step>
+
+  <Step title="Save your optimized program">
+    Persist the optimized program to disk so you can reload it in production without running the optimizer again. Optimization can cost money and time — save your work.
+
+    ```python
+    optimized_qa.save('qa_v1.json')
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  The more diverse your training examples, the better the optimizer can generalize. Aim for examples that cover different phrasings, entity types, and answer lengths — a narrow training set produces a narrow optimizer.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Build a RAG Pipeline" icon="database" href="/guides/rag-pipeline">
+    Extend what you've learned to a multi-step retrieval-augmented generation pipeline with two optimized modules.
+  </Card>
+  <Card title="Optimizers Overview" icon="sliders" href="/optimizers/overview">
+    Explore the full range of DSPy optimizers — from lightweight few-shot selectors to full instruction search with MIPROv2.
+  </Card>
+</CardGroup>

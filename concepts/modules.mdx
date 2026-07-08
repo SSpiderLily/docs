@@ -1,0 +1,118 @@
+---
+title: "DSPy Modules: Wrap Signatures with Prompt Strategies"
+sidebarTitle: "Modules"
+description: "Modules pair a signature with a reasoning strategy. Swap Predict, ChainOfThought, or ReAct without rewriting your task definition."
+---
+
+A DSPy module separates the *what* from the *how*. Your signature declares the task — its inputs, outputs, and instruction — while the module decides the reasoning strategy used to complete it. You can swap `dspy.Predict` for `dspy.ChainOfThought` or `dspy.ReAct` on the same signature without rewriting a single field definition. This separation also means the optimizer can tune each module's prompts independently, giving you fine-grained control over where compute and optimization budget are spent.
+
+## Built-In Modules
+
+DSPy ships with a suite of modules that cover most reasoning patterns. Choose based on the complexity of your task and the latency budget you have.
+
+| Module | Description |
+|---|---|
+| `dspy.Predict` | Direct completion — fastest and cheapest |
+| `dspy.ChainOfThought` | Adds step-by-step reasoning before the answer |
+| `dspy.ReAct` | Reasoning + tool use loop (for agents) |
+| `dspy.ProgramOfThought` | Generates and executes Python code to answer |
+| `dspy.MultiChainComparison` | Runs multiple chains and picks the best |
+| `dspy.Retry` | Retries with feedback when output fails validation |
+
+## Using Predict
+
+`dspy.Predict` is the baseline module — it calls the model once and returns the output fields directly. Use it when the task is straightforward and you do not need intermediate reasoning steps.
+
+```python
+classify = dspy.Predict(SentimentClassifier)
+result = classify(review='Great product!')
+print(result.sentiment)  # positive
+```
+
+Pass the signature class (or an inline string) to `dspy.Predict`, then call the resulting object with your input fields as keyword arguments. The return value is a `dspy.Prediction` object whose attributes match your output field names.
+
+## Using ChainOfThought
+
+`dspy.ChainOfThought` automatically adds a `reasoning` field to your signature's output. The model fills in its step-by-step thinking before producing the final answer, which improves accuracy on multi-step problems.
+
+```python
+solve = dspy.ChainOfThought('problem -> solution')
+result = solve(problem='If a train travels 60 mph for 2.5 hours, how far does it go?')
+print(result.reasoning)  # step-by-step reasoning
+print(result.solution)   # 150 miles
+```
+
+<Note>
+  Always define `forward()` when subclassing `dspy.Module`. The optimizer traces this method to understand your program's structure and identify which modules to tune. If you override `__call__` instead, the optimizer cannot inspect your program correctly.
+</Note>
+
+## Composing a Custom Module
+
+Subclass `dspy.Module` to build multi-step pipelines. Declare child modules in `__init__` and implement `forward()` to define the data flow between them.
+
+```python
+class RAGPipeline(dspy.Module):
+    def __init__(self, retriever, k=3):
+        self.retrieve = retriever
+        self.k = k
+        self.generate = dspy.ChainOfThought('context, question -> answer')
+
+    def forward(self, question):
+        context = self.retrieve(question, k=self.k)
+        return self.generate(context=context, question=question)
+
+rag = RAGPipeline(retriever=my_retriever)
+answer = rag(question='What is the capital of France?')
+```
+
+Each child module (`self.generate` here) has its own set of learnable parameters — instructions and few-shot examples — that the optimizer tunes independently. The more you decompose your pipeline into named child modules, the more leverage the optimizer has.
+
+## Using ReAct with Tools
+
+`dspy.ReAct` implements the Reasoning + Acting loop. It lets the model call Python functions as tools, observe their return values, and continue reasoning until it reaches a final answer.
+
+```python
+def search_web(query: str) -> str:
+    """Search the web and return a summary."""
+    # your search implementation
+    ...
+
+agent = dspy.ReAct('question -> answer', tools=[search_web])
+result = agent(question='What is the current population of Tokyo?')
+```
+
+Pass a list of plain Python functions as `tools`. DSPy reads each function's name, type annotations, and docstring to describe the tool to the model — so write clear docstrings for every tool you expose.
+
+## Module Parameters and State
+
+Modules store their optimized state — instructions and few-shot demonstrations — as internal parameters. Before optimization, these parameters are empty or hold default values. After you run an optimizer, it writes synthesized instructions and examples directly into the module's parameters.
+
+<Tabs>
+  <Tab title="Inspecting Parameters">
+    Call `named_parameters()` on any compiled module to see what the optimizer has written.
+
+    ```python
+    for name, param in optimized_rag.named_parameters():
+        print(name, param)
+    ```
+  </Tab>
+  <Tab title="Saving and Loading">
+    Save a compiled module to disk so you can reload it in production without re-running the optimizer.
+
+    ```python
+    optimized_rag.save('rag_v1.json')
+
+    # Later, in production:
+    rag = RAGPipeline(retriever=my_retriever)
+    rag.load('rag_v1.json')
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+With signatures and modules in hand, use an optimizer to automatically improve your program's instructions and few-shot examples.
+
+<Card title="DSPy Optimizers" icon="sliders" href="/concepts/optimizers">
+  Learn how BootstrapFewShot, MIPROv2, and GEPA compile your program against a metric to maximize performance.
+</Card>

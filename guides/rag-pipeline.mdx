@@ -1,0 +1,138 @@
+---
+title: Build an Optimized RAG Pipeline Using DSPy Modules
+sidebarTitle: RAG Pipeline
+description: Build a retrieval-augmented generation pipeline in DSPy, then auto-optimize both the query and synthesis prompts against a quality metric.
+---
+
+Retrieval-augmented generation (RAG) grounds a language model's answers in real documents, reducing hallucinations and enabling up-to-date responses. DSPy takes RAG further by treating both the query-generation step and the answer-synthesis step as optimizable modules — so instead of hand-writing prompts for each stage, you let the optimizer find the instructions that produce the best end-to-end results.
+
+<Steps>
+  <Step title="Set up DSPy and define a retriever">
+    Configure your language model and create a retrieval function. In production you'll swap the in-memory list for a vector database, but the interface stays the same — a callable that takes a query string and returns a list of document strings.
+
+    ```python
+    import dspy
+
+    dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+    # Simple retriever using a list of documents
+    docs = [
+        'Paris is the capital of France, known for the Eiffel Tower.',
+        'The Eiffel Tower was built in 1889 for the World Fair.',
+        'France has a population of about 68 million people.',
+    ]
+
+    def retrieve(query: str, k: int = 2) -> list[str]:
+        """Retrieve top-k relevant documents."""
+        # In production, use a vector database or ColBERT
+        return docs[:k]
+    ```
+  </Step>
+
+  <Step title="Define signatures for each stage">
+    Your pipeline has two distinct LM calls: one to generate a focused search query, and one to synthesize a final answer from the retrieved documents. Give each stage its own signature with clear field descriptions.
+
+    ```python
+    class GenerateSearchQuery(dspy.Signature):
+        """Generate a focused search query to retrieve relevant facts."""
+        question: str = dspy.InputField()
+        search_query: str = dspy.OutputField(desc='A short, specific search query')
+
+    class SynthesizeAnswer(dspy.Signature):
+        """Synthesize an answer from retrieved context."""
+        context: list[str] = dspy.InputField(desc='Retrieved documents')
+        question: str = dspy.InputField()
+        answer: str = dspy.OutputField()
+        citations: list[int] = dspy.OutputField(desc='Indices of supporting documents (0-indexed)')
+    ```
+  </Step>
+
+  <Step title="Build the RAG module">
+    Compose both signatures into a single `dspy.Module`. The `forward` method wires them together: generate a query, retrieve documents, then synthesize the answer. DSPy tracks the full execution graph so the optimizer can tune every module in one pass.
+
+    ```python
+    class RAGPipeline(dspy.Module):
+        def __init__(self, k=3):
+            self.k = k
+            self.generate_query = dspy.ChainOfThought(GenerateSearchQuery)
+            self.synthesize = dspy.ChainOfThought(SynthesizeAnswer)
+
+        def forward(self, question):
+            query = self.generate_query(question=question).search_query
+            context = retrieve(query, k=self.k)
+            return self.synthesize(context=context, question=question)
+
+    rag = RAGPipeline(k=2)
+    ```
+  </Step>
+
+  <Step title="Test the unoptimized pipeline">
+    Run a sample question through the pipeline to confirm the retrieval and synthesis steps are working end-to-end before you invest time in optimization.
+
+    ```python
+    result = rag(question='When was the Eiffel Tower built?')
+    print(result.answer)    # The Eiffel Tower was built in 1889.
+    print(result.citations) # [1]
+    ```
+  </Step>
+
+  <Step title="Optimize with MIPROv2">
+    MIPROv2 searches for the best instructions and demonstrations for every module in your pipeline simultaneously. Use `auto='light'` for a fast first run — you can increase the search budget once you've validated the setup.
+
+    ```python
+    train = [
+        dspy.Example(
+            question='When was the Eiffel Tower built?',
+            answer='1889'
+        ).with_inputs('question'),
+        # ... more examples
+    ]
+
+    def answer_match(example, prediction, trace=None):
+        return example.answer.lower() in prediction.answer.lower()
+
+    optimizer = dspy.MIPROv2(metric=answer_match, auto='light')
+    optimized_rag = optimizer.compile(rag, trainset=train)
+    ```
+  </Step>
+
+  <Step title="Save the optimized pipeline">
+    Persist both the optimized query-generation prompt and the synthesis prompt to a single JSON file. Loading it later requires no re-optimization.
+
+    ```python
+    optimized_rag.save('rag_pipeline_v1.json')
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  MIPROv2 optimizes every module in your pipeline — both the query generator and the synthesizer receive improved instructions and few-shot demonstrations from the same compilation run. You don't need to optimize each stage separately.
+</Note>
+
+## Production retrieval options
+
+The `retrieve` function above is a placeholder. In production, drop in any of these vector search backends without changing your DSPy signatures:
+
+<CardGroup cols={2}>
+  <Card title="ColBERT" icon="bolt">
+    High-accuracy neural retrieval with late interaction. Excellent for domain-specific corpora. Use `dspy.ColBERTv2` for native integration.
+  </Card>
+  <Card title="Pinecone" icon="database">
+    Fully managed vector database. Swap `retrieve()` with a Pinecone query client for a production-ready setup.
+  </Card>
+  <Card title="Weaviate" icon="circle-nodes">
+    Open-source vector store with hybrid BM25 + semantic search built in. Well-suited for structured document collections.
+  </Card>
+  <Card title="ChromaDB" icon="layer-group">
+    Lightweight, embeddable vector database ideal for local development and smaller deployments.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Agents & Tools" icon="wrench" href="/guides/agents-tools">
+    Add tool use to your pipeline — let the model call functions, search databases, and iterate before answering.
+  </Card>
+  <Card title="MIPROv2 Reference" icon="sliders" href="/optimizers/miprov2">
+    Learn all MIPROv2 configuration options, including how to control search budget, number of candidates, and instruction style.
+  </Card>
+</CardGroup>

@@ -1,0 +1,141 @@
+---
+title: "How DSPy Optimizers Tune Your Prompts Automatically"
+sidebarTitle: "Optimizers"
+description: "DSPy optimizers compile your program against a metric to automatically synthesize better instructions and few-shot demonstrations."
+---
+
+A DSPy optimizer is the engine that replaces prompt engineering. Instead of manually iterating on prompt text, you give the optimizer your program, a metric function that scores outputs, and a set of training examples. The optimizer then runs your program many times, observes what works, and writes improved instructions and few-shot demonstrations directly into your module's parameters. The result is a compiled program that outperforms the hand-written baseline — without you touching a single prompt string.
+
+## What Optimizers Tune
+
+Depending on which optimizer you choose, it can modify one or more of the following:
+
+<CardGroup cols={3}>
+  <Card title="Instructions" icon="file-lines">
+    The natural language prompt text sent to the model for each module — equivalent to what you would write by hand, but synthesized and validated automatically.
+  </Card>
+  <Card title="Few-Shot Demos" icon="list-check">
+    Input/output examples prepended to the prompt. The optimizer bootstraps these from your training set, keeping only the examples that improve the metric.
+  </Card>
+  <Card title="LM Weights" icon="microchip">
+    Full fine-tuning of the underlying language model parameters, available with `BootstrapFinetune`. Requires more data but delivers the highest performance ceiling.
+  </Card>
+</CardGroup>
+
+## The Three Inputs Every Optimizer Needs
+
+Every DSPy optimizer requires the same three things before it can compile your program.
+
+<Steps>
+  <Step title="Your Program">
+    Any `dspy.Module` subclass or single built-in module. The optimizer traces `forward()` to discover which child modules to tune.
+  </Step>
+  <Step title="A Metric Function">
+    A Python function with the signature `(example, prediction, trace=None) -> float | bool`. Higher return values mean better outputs. See [Writing Metrics](/concepts/metrics) for details.
+  </Step>
+  <Step title="A Training Set">
+    A list of `dspy.Example` objects. Each example must call `.with_inputs(...)` to declare which fields are inputs (everything else is treated as a label).
+  </Step>
+</Steps>
+
+## Basic Optimizer Pattern
+
+The pattern is the same regardless of which optimizer you choose: instantiate the optimizer with your metric, then call `.compile()` with your program and training set.
+
+```python
+# 1. Your program
+program = dspy.ChainOfThought('question -> answer')
+
+# 2. Your metric
+def exact_match(example, prediction, trace=None):
+    return prediction.answer.strip().lower() == example.answer.strip().lower()
+
+# 3. Your training data
+train = [
+    dspy.Example(question='What is 2+2?', answer='4').with_inputs('question'),
+    dspy.Example(question='Capital of France?', answer='Paris').with_inputs('question'),
+    # ... more examples
+]
+
+# 4. Compile
+optimizer = dspy.MIPROv2(metric=exact_match, auto='medium')
+optimized = optimizer.compile(program, trainset=train)
+```
+
+`compile()` returns a new module with the same structure as `program` but with updated parameters. Your original `program` object is not modified.
+
+## Choosing an Optimizer
+
+<Tabs>
+  <Tab title="Comparison Table">
+    | Optimizer | What It Tunes | Best For |
+    |---|---|---|
+    | `BootstrapFewShot` | Few-shot demos | Quick wins, small datasets |
+    | `LabeledFewShot` | Few-shot demos from labels | Labeled datasets |
+    | `MIPROv2` | Instructions + demos | Production optimization |
+    | `GEPA` | Instructions with reflection | High-quality instruction tuning |
+    | `BootstrapFinetune` | LM weights | Maximum performance, larger datasets |
+    | `BetterTogether` | Prompts + weights combined | Best possible quality |
+  </Tab>
+  <Tab title="BootstrapFewShot">
+    `BootstrapFewShot` is the fastest optimizer. It runs your program on the training set and collects examples where the metric passes, then uses those as few-shot demonstrations.
+
+    ```python
+    from dspy.teleprompt import BootstrapFewShot
+
+    optimizer = BootstrapFewShot(metric=exact_match, max_bootstrapped_demos=4)
+    optimized = optimizer.compile(program, trainset=train)
+    ```
+
+    Use this first. If it does not reach your quality target, graduate to `MIPROv2`.
+  </Tab>
+  <Tab title="MIPROv2">
+    `MIPROv2` jointly optimizes both instructions and few-shot demonstrations using a Bayesian search. The `auto` parameter controls the search budget.
+
+    ```python
+    from dspy.teleprompt import MIPROv2
+
+    optimizer = dspy.MIPROv2(metric=exact_match, auto='medium')
+    optimized = optimizer.compile(program, trainset=train, num_trials=20)
+    ```
+
+    Valid `auto` values: `'light'`, `'medium'`, `'heavy'`. Start with `'medium'` for most tasks.
+  </Tab>
+  <Tab title="GEPA">
+    `GEPA` uses reflection-based instruction optimization. Your metric must return a `dspy.Prediction` with `score` and `feedback` fields so the optimizer can understand *why* an output was wrong.
+
+    ```python
+    from dspy.teleprompt import GEPA
+
+    optimizer = GEPA(metric=gepa_metric)
+    optimized = optimizer.compile(program, trainset=train)
+    ```
+
+    See [Writing Metrics](/concepts/metrics) for how to write a GEPA-compatible metric.
+  </Tab>
+</Tabs>
+
+<Tip>
+  Start with `BootstrapFewShot` — it needs as few as 10–20 training examples and finishes in minutes. Once you have a working pipeline and a larger dataset (50+ examples), switch to `MIPROv2` or `GEPA` to squeeze out the next tier of quality for production.
+</Tip>
+
+## Saving and Loading a Compiled Program
+
+After compilation, save the optimized parameters to disk so you do not need to re-run the optimizer in production or CI.
+
+```python
+optimized.save('my_program_v1.json')
+
+# Reload without re-optimizing:
+program.load('my_program_v1.json')
+```
+
+The saved file contains only the learned parameters (instructions and demos), not model weights. It is small and human-readable — check it into version control alongside your code.
+
+## Next Steps
+
+Read the full optimizer reference to compare hyperparameter options, dataset size requirements, and cost estimates for each optimizer.
+
+<Card title="Optimizer Overview" icon="chart-line" href="/optimizers/overview">
+  Deep-dive comparisons of every optimizer: when to use each one, how to configure it, and how to interpret its output.
+</Card>

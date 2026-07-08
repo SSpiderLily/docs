@@ -1,0 +1,121 @@
+---
+title: "dspy.LM — Language Model Configuration API"
+sidebarTitle: "LM"
+description: "dspy.LM connects DSPy to any language model provider. Configure your model name, API key, temperature, caching, and retry behavior in a single object."
+---
+
+`dspy.LM` is the object that connects your DSPy program to an actual language model. Every call your program makes — whether bootstrapping demonstrations, generating candidate instructions, or running inference — flows through an `LM` instance. Under the hood, DSPy uses [LiteLLM](https://docs.litellm.ai/) to route requests, which means you can point `dspy.LM` at any of the 100+ providers LiteLLM supports simply by changing the model string. You configure your model once, pass it to `dspy.configure()` to set it globally, and optionally override it per-module with `set_lm()`.
+
+## Constructor
+
+```python
+lm = dspy.LM(
+    model,
+    api_key=None,
+    api_base=None,
+    temperature=0.0,
+    max_tokens=1000,
+    cache=True,
+    cache_in_memory=True,
+    num_retries=3,
+    **kwargs,
+)
+```
+
+### Parameters
+
+<ParamField path="model" type="str" required>
+  The model identifier in LiteLLM format: `'provider/model-name'`. Examples: `'openai/gpt-4o-mini'`, `'anthropic/claude-3-5-haiku-20241022'`, `'ollama_chat/llama3.1'`. See the [supported model strings](#supported-model-strings) section below for a full list of examples.
+</ParamField>
+
+<ParamField path="api_key" type="str" default="None">
+  Your API key for the provider. If omitted, DSPy reads the key from the corresponding environment variable (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). Using environment variables is the recommended approach for production deployments.
+</ParamField>
+
+<ParamField path="api_base" type="str" default="None">
+  Base URL for your model endpoint. Required for Azure OpenAI deployments and local model servers such as Ollama. Leave as `None` for standard cloud providers.
+</ParamField>
+
+<ParamField path="temperature" type="float" default="0.0">
+  Sampling temperature. Use `0.0` for deterministic, reproducible outputs during evaluation and optimization. Increase toward `1.0` when you want more variation, such as when generating diverse instruction candidates.
+</ParamField>
+
+<ParamField path="max_tokens" type="int" default="1000">
+  Maximum number of tokens to generate per response. Increase this for tasks that require long outputs such as summarization or multi-step reasoning.
+</ParamField>
+
+<ParamField path="cache" type="bool" default="true">
+  When `True`, DSPy caches model responses to disk at `~/.dspy_cache`. Caching eliminates redundant LM calls during repeated optimization runs and development iteration, which can significantly reduce cost.
+</ParamField>
+
+<ParamField path="cache_in_memory" type="bool" default="true">
+  When `True`, responses are also cached in the process's memory for the duration of the current run. This makes repeated identical calls within a single script near-instantaneous.
+</ParamField>
+
+<ParamField path="num_retries" type="int" default="3">
+  Number of automatic retries on transient errors such as rate-limit responses or network timeouts. DSPy uses exponential backoff between attempts.
+</ParamField>
+
+<ParamField path="**kwargs" type="any">
+  Additional keyword arguments forwarded directly to LiteLLM. Use these to pass provider-specific parameters such as `timeout`, `organization`, or model-specific sampling settings.
+</ParamField>
+
+---
+
+## Configuring Globally
+
+Set a default LM for your entire program using `dspy.configure()`. Every module that has not been given its own LM will use this one.
+
+```python
+import dspy
+
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='sk-...'))
+```
+
+---
+
+## Per-Module Override
+
+Override the LM for a specific module without affecting the global setting:
+
+```python
+my_module.set_lm(dspy.LM('openai/gpt-4o'))
+```
+
+This is useful when one module in your pipeline requires a more capable model while the rest can use a cheaper one.
+
+---
+
+## Supported Model Strings
+
+DSPy supports any model that LiteLLM supports. Below are examples for the most common providers.
+
+```python
+# OpenAI
+dspy.LM('openai/gpt-4o-mini')
+dspy.LM('openai/gpt-4o')
+
+# Anthropic
+dspy.LM('anthropic/claude-3-5-haiku-20241022')
+dspy.LM('anthropic/claude-opus-4-5')
+
+# Google
+dspy.LM('google/gemini-2.0-flash')
+
+# Azure OpenAI
+dspy.LM('azure/gpt-4o-mini', api_base='https://...openai.azure.com/', api_key='...')
+
+# Local Ollama
+dspy.LM('ollama_chat/llama3.1', api_base='http://localhost:11434')
+
+# HuggingFace
+dspy.LM('huggingface/meta-llama/Llama-3.1-8B-Instruct', api_key='hf-...')
+```
+
+<Note>
+  When using a local Ollama model, set `cache=False` if you are experimenting interactively and want to see fresh responses on every run. Disk caching is keyed on the exact prompt, so repeated identical calls will still return cached results even with a running local server.
+</Note>
+
+<Tip>
+  During optimizer runs, DSPy may spin up many parallel LM calls. Set `num_retries` to at least `5` and consider using a higher-tier API plan if you encounter frequent rate-limit errors during optimization.
+</Tip>

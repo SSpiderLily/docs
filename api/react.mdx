@@ -1,0 +1,85 @@
+---
+title: "dspy.ReAct — Tool-Using Agent Module for DSPy"
+sidebarTitle: "ReAct"
+description: "dspy.ReAct implements a reasoning-and-acting loop that lets your program call external tools iteratively to gather information before producing a final answer."
+---
+
+`dspy.ReAct` turns a signature into a full agent loop: the model reasons about what to do, calls one of your tools, observes the result, and repeats — up to `max_iters` times — before producing the final output fields declared on your signature. Because the entire loop is expressed as a DSPy module, you can optimize it end-to-end using any DSPy optimizer, just like you would a `Predict` or `ChainOfThought` module.
+
+## Constructor
+
+```python
+agent = dspy.ReAct(signature, tools, max_iters=5)
+```
+
+<ParamField body="signature" type="dspy.Signature | str" required>
+  The task signature defining the agent's inputs and final outputs. The agent iterates through tool calls until it is ready to populate these output fields.
+</ParamField>
+
+<ParamField body="tools" type="list[callable]" required>
+  A list of Python functions the agent may call. DSPy uses each function's **name** and **docstring** to describe the tool to the model, so both must be clear and informative.
+</ParamField>
+
+<ParamField body="max_iters" type="int" default="5">
+  The maximum number of reasoning-and-action steps before the agent is forced to produce a final answer. Increase this for tasks that require many sequential lookups; decrease it to reduce cost and latency.
+</ParamField>
+
+## Defining Tools
+
+Each tool is a plain Python callable. DSPy presents the function name and docstring to the model, so write docstrings that explain what the tool does and what argument it expects.
+
+```python
+def lookup_weather(city: str) -> str:
+    """Look up the current weather for a given city."""
+    # your implementation
+    return f"Weather in {city}: 72°F, partly cloudy"
+
+def calculate(expression: str) -> float:
+    """Evaluate a mathematical expression and return the numeric result."""
+    import math
+    return eval(expression, {'__builtins__': {}}, vars(math))
+```
+
+<Tip>
+  Keep tool docstrings concise and action-oriented. The model uses the docstring to decide when to call the tool — vague descriptions lead to incorrect tool selection and wasted iterations.
+</Tip>
+
+## Full Example
+
+```python
+import dspy
+
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+agent = dspy.ReAct(
+    'question -> answer',
+    tools=[lookup_weather, calculate],
+    max_iters=4,
+)
+
+result = agent(question='What is the weather in Tokyo, and how does that compare to the average of 65°F and 80°F?')
+print(result.answer)
+```
+
+## Accessing the Trace
+
+After each call, the result object exposes the full step-by-step trajectory. Each entry in `result.trajectory` shows the model's thought, the action it took, and the observation it received.
+
+```python
+result = agent(question='...')
+for step in result.trajectory:
+    print(step)  # shows thought, action, observation at each step
+```
+
+## Optimizing a ReAct Agent
+
+You can compile a `ReAct` agent with any DSPy optimizer. The optimizer tunes the instructions and few-shot demonstrations for the reasoning steps, improving tool-selection accuracy and final answer quality.
+
+```python
+optimizer = dspy.MIPROv2(metric=my_metric, auto='light')
+optimized_agent = optimizer.compile(agent, trainset=train)
+```
+
+<Warning>
+  Tools with side effects — such as writing to a database or sending emails — will be called during optimization as the optimizer evaluates candidate programs against your training set. Wrap side-effectful tools with guards or substitute mock implementations before running `compile`.
+</Warning>

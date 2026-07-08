@@ -1,0 +1,147 @@
+---
+title: "DSPy Signatures: Declare Tasks as Typed I/O Fields"
+sidebarTitle: "Signatures"
+description: "A Signature defines typed inputs and outputs for a task, replacing prompt strings with portable, reusable, and optimizable declarations."
+---
+
+A DSPy Signature lets you describe *what* a language model should do — its inputs, outputs, and the nature of the task — without writing a single prompt string. Instead of manually crafting and tweaking prompt templates, you declare typed fields, and DSPy handles the translation into actual model instructions. This separation makes your programs portable across models, easy to test, and ready for automatic optimization.
+
+## Class-Based Signatures
+
+Class-based signatures are the preferred way to define tasks. They give you full control over field descriptions, type annotations, and the task instruction itself.
+
+```python
+import dspy
+
+class QA(dspy.Signature):
+    """Answer questions given relevant context."""
+    context: str = dspy.InputField(desc="Relevant background information")
+    question: str = dspy.InputField()
+    answer: str = dspy.OutputField(desc="Concise answer, 1-2 sentences")
+```
+
+The class docstring becomes the instruction sent to the model. Each field is declared as a class attribute with a type annotation and either `dspy.InputField()` or `dspy.OutputField()`.
+
+## Inline String Signatures
+
+For quick prototyping or simple single-step tasks, use the compact string form. Pass a `'inputs -> outputs'` string directly to any module.
+
+```python
+# Short form: 'input -> output'
+predict = dspy.Predict('question -> answer')
+
+# Multiple fields
+predict = dspy.Predict('context, question -> answer, confidence')
+```
+
+Inline signatures have no field descriptions or type constraints — they trade expressiveness for brevity. Promote them to class-based signatures once you move beyond the prototype stage.
+
+## InputField and OutputField Parameters
+
+Both `dspy.InputField` and `dspy.OutputField` accept the same set of keyword arguments to guide the model's behavior.
+
+<Tabs>
+  <Tab title="desc">
+    The `desc` parameter provides a hint that tells the model what this field contains or what format to use. It appears alongside the field label in the generated prompt.
+
+    ```python
+    class Summarize(dspy.Signature):
+        """Summarize the document."""
+        document: str = dspy.InputField(desc="Full text of the document to summarize")
+        summary: str = dspy.OutputField(desc="3-5 sentence summary, plain prose")
+    ```
+  </Tab>
+  <Tab title="prefix">
+    The `prefix` parameter overrides the default label that DSPy generates from the field name. Use it when the field name alone would be ambiguous in the prompt.
+
+    ```python
+    class Translate(dspy.Signature):
+        """Translate text to the target language."""
+        source_text: str = dspy.InputField(prefix="Text to translate:")
+        target_language: str = dspy.InputField(prefix="Target language:")
+        translation: str = dspy.OutputField(prefix="Translated text:")
+    ```
+  </Tab>
+  <Tab title="Type Annotations">
+    Annotate fields with any of the following types. DSPy parses and validates the model's output against the declared type.
+
+    | Annotation | Example |
+    |---|---|
+    | `str` | Plain text output |
+    | `int`, `float` | Numeric values |
+    | `bool` | True / False |
+    | `list`, `list[str]` | Arrays |
+    | `dict` | Key-value mappings |
+    | `Literal[...]` | Constrained choices |
+    | `Optional[...]` | Nullable fields |
+    | Pydantic `BaseModel` | Structured objects |
+
+    ```python
+    class RateReview(dspy.Signature):
+        """Rate a product review."""
+        review: str = dspy.InputField()
+        rating: int = dspy.OutputField(desc="Score from 1 to 5")
+        is_spam: bool = dspy.OutputField()
+    ```
+  </Tab>
+</Tabs>
+
+## Typed Outputs with Literal and Pydantic
+
+When you need the model to return constrained or structured values, use `Literal` for enumerated choices and Pydantic `BaseModel` for nested objects. DSPy enforces these types at parse time.
+
+```python
+from typing import Literal
+from pydantic import BaseModel
+
+class TicketRouter(dspy.Signature):
+    """Route a support ticket to the right team."""
+    ticket: str = dspy.InputField()
+    priority: Literal['low', 'medium', 'high'] = dspy.OutputField()
+    team: str = dspy.OutputField()
+
+
+class Event(BaseModel):
+    name: str
+    date: str
+    location: str
+
+class ExtractEvents(dspy.Signature):
+    """Extract structured events from text."""
+    text: str = dspy.InputField()
+    events: list[Event] = dspy.OutputField()
+```
+
+`TicketRouter` guarantees that `priority` is always one of the three allowed values. `ExtractEvents` returns a list of fully validated `Event` objects — no manual JSON parsing required.
+
+## Docstring as Instruction
+
+The class docstring is the task instruction that DSPy sends to the model. It should tell the model precisely what to do, not just describe the class. Write it in imperative mood and be specific about the expected behavior.
+
+<Tip>
+  Write docstrings that describe the *task* concretely, not the class abstractly. Compare:
+
+  - ❌ `"""A signature for answering questions helpfully."""` — vague, describes the class
+  - ✅ `"""Answer the question using only the provided context. Do not use outside knowledge."""` — precise, tells the model what to do
+
+  During optimization, the optimizer may rewrite your docstring to improve performance. A clear, specific starting instruction gives the optimizer a better baseline to refine.
+</Tip>
+
+## Signature Inheritance
+
+Extend an existing signature by subclassing it and adding new fields. The child class inherits all input and output fields from the parent.
+
+```python
+class DetailedQA(QA):
+    sources: list[str] = dspy.OutputField(desc="List of sources cited")
+```
+
+`DetailedQA` now has `context`, `question`, `answer` (from `QA`) *and* the new `sources` field. Use inheritance to progressively enrich a signature without duplicating field definitions.
+
+## Next Steps
+
+Once you have a signature, wrap it in a module to choose the reasoning strategy that drives it.
+
+<Card title="DSPy Modules" icon="cubes" href="/concepts/modules">
+  Learn how Predict, ChainOfThought, and ReAct apply different prompting strategies to your signatures.
+</Card>

@@ -1,0 +1,108 @@
+---
+title: Fine-Tune Language Model Weights with BootstrapFinetune
+sidebarTitle: Fine-Tuning
+description: Use BootstrapFinetune to pair prompt optimization with weight fine-tuning so smaller models can match larger ones at a fraction of the cost.
+---
+
+Prompt optimization improves your program by finding better instructions and few-shot examples — but it leaves the model's weights unchanged. Fine-tuning goes one step further: it updates the model itself so that the knowledge and behavior you want are baked into the weights, not carried as overhead in a long prompt. The result is typically lower latency, lower cost per token, and better performance on specialized tasks — at the expense of a one-time training cost and a longer iteration loop.
+
+## When to fine-tune instead of just optimizing prompts
+
+Fine-tuning is worth the investment when one or more of these conditions apply:
+
+- **You have 100+ labeled examples.** Fine-tuning needs enough signal to meaningfully shift the model's weights. Fewer than 100 examples usually produces unreliable fine-tunes.
+- **You need lower latency or cost.** A fine-tuned `gpt-4o-mini` can match or beat a prompted `gpt-4o` on your specific task at a fraction of the inference cost.
+- **Your task is highly specialized.** Domain-specific terminology, formatting conventions, or reasoning patterns that rarely appear in general pretraining data respond well to fine-tuning.
+- **Prompt optimization has plateaued.** If MIPROv2 or BootstrapFewShot have stopped improving your metric, fine-tuning the weights is the natural next step.
+
+## Prerequisites
+
+Before you run `BootstrapFinetune`, confirm that:
+
+- Your model provider supports fine-tuning via API (OpenAI fine-tuning API, HuggingFace Trainer, etc.)
+- You have at least 50–100 labeled training examples (more is better)
+- You have a held-out validation set to catch overfitting
+
+<Note>
+  Weight optimization with `BootstrapFinetune` requires the LM to support fine-tuning via its API. Most local Ollama models don't expose a fine-tuning endpoint — use the OpenAI fine-tuning API or a HuggingFace model served with a compatible trainer instead.
+</Note>
+
+## Basic usage
+
+`BootstrapFinetune` works like any other DSPy optimizer: pass it your program, training set, and metric. The key difference is that you must assign the LM explicitly on each module rather than relying on the global `dspy.configure` call, so `BootstrapFinetune` knows which model to fine-tune.
+
+```python
+import dspy
+from dspy.teleprompt import BootstrapFinetune
+
+# Your program must have the LM set explicitly (not via global dspy.configure)
+lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
+
+class MyProgram(dspy.Module):
+    def __init__(self):
+        self.step = dspy.ChainOfThought('question -> answer')
+        self.step.set_lm(lm)  # required for BootstrapFinetune
+
+    def forward(self, question):
+        return self.step(question=question)
+
+program = MyProgram()
+
+optimizer = BootstrapFinetune(
+    metric=my_metric,
+    target='openai/gpt-4o-mini',  # model to fine-tune
+    epochs=2,
+    learning_rate=2e-5,
+)
+
+finetuned = optimizer.compile(program, trainset=train_data)
+```
+
+## BetterTogether: prompt optimization then fine-tuning
+
+`BetterTogether` is a two-phase strategy that first runs a prompt optimizer to find the best instructions, then uses those improved demonstrations as training data for fine-tuning. This combination consistently outperforms either approach alone.
+
+```python
+from dspy.teleprompt import GEPA, BootstrapFinetune, BetterTogether
+
+optimizer = BetterTogether(
+    metric=my_metric,
+    p=GEPA(metric=my_metric, auto='medium'),
+    w=BootstrapFinetune(metric=my_metric),
+)
+
+program.set_lm(lm)
+result = optimizer.compile(
+    program,
+    trainset=train_data,
+    valset=val_data,
+    strategy='p -> w',  # prompt optimize first, then fine-tune
+)
+```
+
+The `strategy='p -> w'` argument tells `BetterTogether` to run the prompt optimizer (`p`) first, then hand its output to the weight optimizer (`w`). You can also use `'w -> p'` to fine-tune first and then refine the prompt, or `'p | w'` to run both in parallel and take the best result.
+
+## Cost and time considerations
+
+Fine-tuning is slower and more expensive than prompt optimization. Keep these practices in mind to manage costs:
+
+<Tabs>
+  <Tab title="Batch your experiments">
+    Run prompt optimization (e.g., MIPROv2) first to validate that the task is learnable and your metric is well-defined. Only start a fine-tuning run once prompt optimization shows meaningful gains — this avoids paying fine-tuning costs on a broken setup.
+  </Tab>
+  <Tab title="Start with fewer epochs">
+    Begin with `epochs=1` or `epochs=2`. Overfitting on small datasets is common, and more epochs don't always help. Validate on a held-out set after each epoch if your provider supports checkpoints.
+  </Tab>
+  <Tab title="Version your fine-tuned models">
+    Save both the DSPy program JSON and the fine-tuned model ID returned by your provider. You'll need the model ID to reload the fine-tuned weights in production — treat it like a database migration identifier.
+  </Tab>
+</Tabs>
+
+<CardGroup cols={2}>
+  <Card title="BetterTogether Reference" icon="arrows-split-up-and-left" href="/optimizers/better-together">
+    Full reference for BetterTogether strategies, including how to combine multiple prompt and weight optimizers in sequence or in parallel.
+  </Card>
+  <Card title="Save & Load Programs" icon="floppy-disk" href="/guides/saving-loading">
+    Learn how to persist your fine-tuned program to disk and reload it in production without re-running the optimizer.
+  </Card>
+</CardGroup>

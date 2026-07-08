@@ -1,0 +1,161 @@
+---
+title: "Build Evaluation Metrics for DSPy Prompt Optimization"
+sidebarTitle: "Metrics"
+description: "A DSPy metric scores your program's outputs. Learn to write metrics for classification, generation, and complex multi-criteria evaluation."
+---
+
+Your metric is the single most important input you give to a DSPy optimizer. It is the signal that distinguishes a better prompt from a worse one — if your metric does not capture what you actually care about, the optimizer will faithfully optimize for the wrong thing. A good metric is fast to compute, deterministic, and precise enough that a higher score reliably means a better user experience.
+
+## Metric Function Signature
+
+Every DSPy metric follows the same three-argument contract. The optimizer calls your metric during compilation to score each candidate prompt.
+
+```python
+def my_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float | bool:
+    # example: the ground-truth data point from your training or dev set
+    # prediction: what your program returned for this example
+    # trace: internal trace, used during bootstrapping — return bool when trace is not None
+    ...
+```
+
+<ParamField path="example" type="dspy.Example" required>
+  The ground-truth data point from your training or dev set. Access its fields as attributes: `example.question`, `example.answer`, etc.
+</ParamField>
+
+<ParamField path="prediction" type="dspy.Prediction" required>
+  The output your program produced for this example. Access output fields the same way: `prediction.answer`, `prediction.sentiment`, etc.
+</ParamField>
+
+<ParamField path="trace" type="any" default="None">
+  Populated during bootstrapping. When `trace` is not `None`, return a `bool` (pass/fail). When `trace` is `None`, you can return a `float` for richer scoring during evaluation.
+</ParamField>
+
+<ResponseField name="return value" type="float | bool">
+  A higher value means a better output. Return `True` / `False` for binary pass/fail, or a `float` in any range for partial credit. The optimizer maximizes this value.
+</ResponseField>
+
+## Simple Exact-Match Metric
+
+Use exact match for classification tasks or questions with a single correct answer. It is fast, deterministic, and trivial to debug.
+
+```python
+def exact_match(example, prediction, trace=None):
+    return prediction.answer.strip().lower() == example.answer.strip().lower()
+```
+
+## Fuzzy / Partial-Credit Metric
+
+For generation tasks where multiple phrasings of the correct answer are acceptable, token-level F1 rewards partial overlap between the prediction and the reference.
+
+```python
+def f1_metric(example, prediction, trace=None):
+    pred_tokens = set(prediction.answer.lower().split())
+    gold_tokens = set(example.answer.lower().split())
+    if not gold_tokens:
+        return 0.0
+    precision = len(pred_tokens & gold_tokens) / len(pred_tokens) if pred_tokens else 0
+    recall = len(pred_tokens & gold_tokens) / len(gold_tokens)
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+```
+
+This metric returns a value between `0.0` and `1.0`. A prediction that shares no tokens with the reference scores `0.0`; a perfect match scores `1.0`.
+
+## Multi-Criteria Metric
+
+When you care about more than one dimension of quality — correctness, brevity, formatting, confidence — combine them into a weighted score. Keep the weights explicit so you can adjust the trade-off as your requirements evolve.
+
+```python
+def quality_metric(example, prediction, trace=None):
+    score = 0.0
+    # Correctness (most important)
+    if example.label in prediction.answer.lower():
+        score += 0.6
+    # Brevity
+    if len(prediction.answer.split()) <= 50:
+        score += 0.2
+    # Confidence calibration
+    if hasattr(prediction, 'confidence') and 0.7 <= prediction.confidence <= 1.0:
+        score += 0.2
+    return score
+```
+
+<Tip>
+  Sum your weights to `1.0` so scores stay in the `[0, 1]` range. This makes it easy to compare scores across different tasks and to set a meaningful pass threshold during bootstrapping.
+</Tip>
+
+## LM-as-Judge Metric
+
+When correctness is hard to define with string matching — open-ended generation, tone, safety — use a language model as the judge. Define a signature for the judgment and call it from your metric.
+
+```python
+class JudgeSignature(dspy.Signature):
+    """Judge if the answer is correct and helpful."""
+    question: str = dspy.InputField()
+    answer: str = dspy.InputField()
+    verdict: bool = dspy.OutputField(desc='true if correct and helpful, false otherwise')
+
+judge = dspy.Predict(JudgeSignature)
+
+def llm_judge_metric(example, prediction, trace=None):
+    result = judge(question=example.question, answer=prediction.answer)
+    return result.verdict
+```
+
+<Warning>
+  Keep your metric deterministic when possible. LM-as-judge metrics without caching introduce stochasticity — the same prediction may score differently on repeated calls. This makes optimization unstable and wastes budget on noise. Enable DSPy's caching layer or use a deterministic judge model when you need LM evaluation.
+</Warning>
+
+## GEPA Feedback Metric
+
+If you plan to use the `GEPA` optimizer, your metric must return a `dspy.Prediction` with both a numeric `score` and a `feedback` string explaining *why* a prediction was wrong. GEPA uses this feedback to generate improved instructions via reflection.
+
+```python
+def gepa_metric(example, prediction, trace=None, pred_name=None, pred_trace=None):
+    if prediction.answer.strip().lower() == example.answer.strip().lower():
+        return dspy.Prediction(score=1.0, feedback=None)
+    return dspy.Prediction(
+        score=0.0,
+        feedback=f"Expected '{example.answer}' but got '{prediction.answer}'"
+    )
+```
+
+When `score` is `1.0`, pass `feedback=None` — GEPA only uses feedback on failures. Make feedback messages specific: tell the optimizer what was wrong and what a correct answer looks like, not just that the answer was incorrect.
+
+## Evaluating Your Metric with dspy.Evaluate
+
+Before you hand your metric to an optimizer, run it against your dev set to establish a baseline. Use `dspy.Evaluate` to do this in parallel with progress reporting.
+
+```python
+evaluate = dspy.Evaluate(
+    devset=dev_data,
+    metric=exact_match,
+    num_threads=4,
+    display_progress=True,
+)
+score = evaluate(program)
+print(f'Baseline score: {score:.1%}')  # e.g. Baseline score: 42.0%
+```
+
+<Tip>
+  Run `dspy.Evaluate` on your dev set both *before* and *after* optimization. If your score does not improve, the bottleneck is usually the metric itself (too noisy or misaligned with quality) or the training set (too small or unrepresentative) — not the optimizer. Fix the metric and data first before tuning optimizer hyperparameters.
+</Tip>
+
+<Info>
+  Use a separate dev set for evaluation — not the same training set you pass to the optimizer. Evaluating on training data overstates your program's real-world performance and hides overfitting introduced by few-shot demos.
+</Info>
+
+## Common Pitfalls
+
+<Steps>
+  <Step title="Leaking training labels into your metric">
+    Make sure your metric only reads from `example` fields that are declared as *labels* (not inputs). If a label field accidentally gets passed as an input to your program, your metric will reward the program for memorizing the training set.
+  </Step>
+  <Step title="Using a float metric during bootstrapping without a threshold">
+    During bootstrapping, the optimizer needs a pass/fail decision. If your metric returns a float, set a threshold for the bootstrapper: `BootstrapFewShot(metric=my_metric, metric_threshold=0.5)`.
+  </Step>
+  <Step title="Scoring crashes instead of returning 0">
+    Wrap risky comparisons (missing fields, type errors) in try/except and return `0.0` on failure. A crashing metric aborts optimization and wastes your entire compute budget.
+  </Step>
+</Steps>

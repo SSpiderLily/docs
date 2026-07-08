@@ -1,0 +1,113 @@
+---
+title: "BetterTogether — Combined Prompt and Weight Optimizer"
+sidebarTitle: "BetterTogether"
+description: "BetterTogether sequences any combination of DSPy prompt and weight optimizers, running them in the order you specify to maximize program quality through complementary improvements."
+---
+
+`BetterTogether` is a meta-optimizer that lets you build multi-stage optimization pipelines without writing orchestration code. You register any number of named prompt or weight optimizers, then describe the order you want them to run using a simple arrow-notation strategy string such as `'p -> w'` or `'p -> w -> p'`. `BetterTogether` threads the output of each stage into the input of the next, evaluates every resulting program on your validation set, and returns whichever candidate scored highest. It is the right tool when neither prompt optimization nor weight fine-tuning alone is sufficient and you want to combine both in a principled, reproducible way.
+
+## Import
+
+```python
+from dspy.teleprompt import BetterTogether
+```
+
+---
+
+## Constructor
+
+```python
+optimizer = BetterTogether(
+    metric,
+    **named_optimizers
+)
+```
+
+### Parameters
+
+<ParamField path="metric" type="callable" required>
+  A scoring function with signature `(example, prediction, trace) -> float | bool`. This metric is used to evaluate the program produced by every stage and to select the final best candidate.
+</ParamField>
+
+<ParamField path="**named_optimizers" type="dspy optimizer instances">
+  Keyword arguments where each key is a short name you assign to an optimizer and each value is a configured (but not yet compiled) optimizer instance. The names you choose here are the tokens you use in the `strategy` string passed to `compile()`. For example, passing `p=GEPA(...)` and `w=BootstrapFinetune(...)` lets you write `strategy='p -> w'`.
+</ParamField>
+
+---
+
+## `compile()` Method
+
+```python
+result = optimizer.compile(
+    student,
+    trainset,
+    valset=None,
+    strategy='p -> w',
+    optimizer_compile_args=None,
+)
+```
+
+### Parameters
+
+<ParamField path="student" type="dspy.Module" required>
+  The DSPy program to optimize. Because `BetterTogether` often involves weight fine-tuning, you must set the LM on the program explicitly via `program.set_lm(lm)` rather than relying solely on the global `dspy.configure()` setting.
+</ParamField>
+
+<ParamField path="trainset" type="list[dspy.Example]" required>
+  Training examples passed to every optimizer stage in the pipeline.
+</ParamField>
+
+<ParamField path="valset" type="list[dspy.Example]" default="None">
+  Held-out validation set used to score the program after each stage and to choose the final best candidate. Strongly recommended whenever your pipeline includes a weight fine-tuning step.
+</ParamField>
+
+<ParamField path="strategy" type="str" default="'p -> w'">
+  A string that names the optimizers to run and the order to run them, with stages separated by `->`. Each token must match a key from `**named_optimizers`. Examples: `'p -> w'` runs prompt optimization then weight fine-tuning; `'p -> w -> p'` adds a second prompt optimization pass on top of the fine-tuned weights.
+</ParamField>
+
+<ParamField path="optimizer_compile_args" type="dict" default="None">
+  A dictionary of per-optimizer keyword arguments to forward to each optimizer's `compile()` call, keyed by optimizer name. For example, `{'p': {'num_trials': 10}, 'w': {'epochs': 3}}` passes `num_trials=10` when compiling the prompt optimizer and `epochs=3` when compiling the weight optimizer.
+</ParamField>
+
+### Return Value
+
+`compile()` returns the program that scored highest on `valset` (or `trainset` if no `valset` is provided) across all evaluated stages. The returned program also exposes a `candidate_programs` attribute — a list of `{program, score}` dicts sorted by descending score — so you can inspect or reload any intermediate result.
+
+---
+
+## Full Example
+
+```python
+from dspy.teleprompt import GEPA, BootstrapFinetune, BetterTogether
+import dspy
+
+lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
+program = MyProgram()
+program.set_lm(lm)
+
+optimizer = BetterTogether(
+    metric=my_metric,
+    p=GEPA(metric=my_metric, auto='medium'),
+    w=BootstrapFinetune(metric=my_metric),
+)
+
+best = optimizer.compile(
+    program,
+    trainset=train,
+    valset=dev,
+    strategy='p -> w',
+)
+best.save('program_bt_v1.json')
+```
+
+<Note>
+  The strategy string only references the names you define in `**named_optimizers`. Using a token that doesn't match a registered optimizer name will raise a `KeyError` at compile time.
+</Note>
+
+<Warning>
+  Strategies that include a weight fine-tuning step (e.g., any stage referencing a `BootstrapFinetune` optimizer) will submit fine-tuning jobs to your LM provider and incur additional charges. Review your provider's pricing before running a multi-stage pipeline.
+</Warning>
+
+<Tip>
+  The `'p -> w -> p'` strategy — prompt optimization, then fine-tuning, then another round of prompt optimization on the fine-tuned model — often outperforms either optimization type alone. The second prompt pass adapts instructions to the behavior of the newly fine-tuned weights.
+</Tip>

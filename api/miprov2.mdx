@@ -1,0 +1,156 @@
+---
+title: "dspy.MIPROv2 — Instruction and Demo Optimizer API"
+sidebarTitle: "MIPROv2"
+description: "dspy.MIPROv2 optimizes both instructions and few-shot demonstrations across every module in your program using a three-stage bootstrapping and search process."
+---
+
+MIPROv2 (Multi-prompt Instruction Proposal Optimizer v2) is DSPy's most capable prompt optimizer. It jointly tunes the natural-language instructions and the few-shot demonstrations for every module in your program, making it the right choice when you want the highest possible accuracy and are willing to spend more LM calls to get there. Under the hood, MIPROv2 runs in three stages: it bootstraps candidate demonstrations from your trainset, proposes a library of instruction variants using a `prompt_model`, and then searches over the combined space of instruction-and-demo combinations using Bayesian optimization to find the configuration that scores best on your validation set.
+
+## Constructor
+
+```python
+optimizer = dspy.MIPROv2(
+    metric,
+    auto='medium',
+    num_threads=6,
+    prompt_model=None,
+    task_model=None,
+    max_errors=10,
+    verbose=False,
+)
+```
+
+### Parameters
+
+<ParamField path="metric" type="callable" required>
+  A scoring function with signature `(example, prediction, trace) -> float | bool`. Return `1.0` / `True` for a correct prediction and `0.0` / `False` for an incorrect one. Fractional scores are also supported.
+</ParamField>
+
+<ParamField path="auto" type="str" default="medium">
+  Budget preset that controls how many candidate programs are evaluated. Use `'light'` for roughly 6 trials (fast iteration), `'medium'` for ~25 trials (recommended default), or `'heavy'` for 50+ trials (maximum quality). You can override the exact count at compile time with the `num_trials` argument.
+</ParamField>
+
+<ParamField path="num_threads" type="int" default="6">
+  Number of parallel threads used when evaluating candidate programs against your validation set. Increase this to speed up optimization if your LM provider supports higher concurrency.
+</ParamField>
+
+<ParamField path="prompt_model" type="dspy.LM" default="None">
+  The language model used to generate candidate instruction variants. Defaults to `task_model` when not set. Passing a larger, more capable model here (such as GPT-4o) often improves instruction quality without affecting inference cost.
+</ParamField>
+
+<ParamField path="task_model" type="dspy.LM" default="None">
+  The language model being optimized — the one your program uses at inference time. Defaults to the globally configured `dspy.settings.lm`.
+</ParamField>
+
+<ParamField path="max_errors" type="int" default="10">
+  Maximum number of evaluation errors to tolerate before aborting the optimization run. Errors can occur when an LM call raises an exception or returns an unparseable response.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="false">
+  When `True`, MIPROv2 prints detailed progress information including per-trial scores and the instruction candidates being evaluated.
+</ParamField>
+
+---
+
+## `compile()` Method
+
+```python
+optimized = optimizer.compile(
+    student,
+    trainset,
+    valset=None,
+    num_trials=None,            # overrides auto if set
+    max_bootstrapped_demos=4,
+    max_labeled_demos=4,
+    seed=42,
+    requires_permission_to_run=True,
+)
+```
+
+### Parameters
+
+<ParamField path="student" type="dspy.Module" required>
+  The DSPy program you want to optimize. MIPROv2 will tune the instructions and demos of every `dspy.Predict`-based module inside this program.
+</ParamField>
+
+<ParamField path="trainset" type="list[dspy.Example]" required>
+  The training examples used both for bootstrapping demonstrations and for evaluating candidate programs during the search phase.
+</ParamField>
+
+<ParamField path="valset" type="list[dspy.Example]" default="None">
+  An optional held-out validation set. When provided, MIPROv2 selects the best candidate program based on `valset` scores rather than `trainset` scores, reducing overfitting. Strongly recommended for production use.
+</ParamField>
+
+<ParamField path="num_trials" type="int" default="None">
+  Explicit number of candidate programs to evaluate. When set, this overrides the count implied by the `auto` preset.
+</ParamField>
+
+<ParamField path="max_bootstrapped_demos" type="int" default="4">
+  Maximum number of auto-generated few-shot demonstrations per module. These are produced by running your program on `trainset` examples and keeping the traces that pass your metric.
+</ParamField>
+
+<ParamField path="max_labeled_demos" type="int" default="4">
+  Maximum number of labeled examples from `trainset` to include as few-shot demonstrations per module.
+</ParamField>
+
+<ParamField path="seed" type="int" default="42">
+  Random seed for reproducibility. Fixing the seed ensures the same candidate set is generated across runs with the same data and configuration.
+</ParamField>
+
+<ParamField path="requires_permission_to_run" type="bool" default="true">
+  When `True`, MIPROv2 prints a cost summary and waits for your confirmation before starting. Set to `False` to skip the prompt in automated pipelines.
+</ParamField>
+
+### Return Value
+
+`compile()` returns a copy of `student` with the best-found instructions and demonstrations loaded into each module. The original `student` is not modified.
+
+---
+
+## `candidate_programs` Attribute
+
+After `compile()` finishes, `optimizer.candidate_programs` holds every program that was evaluated during the search. Each entry is a dict with two keys:
+
+- `"program"` — a compiled `dspy.Module` instance
+- `"score"` — the numeric score achieved on the validation (or training) set
+
+The list is sorted in descending order by score, so `optimizer.candidate_programs[0]` is the best program found.
+
+---
+
+## Full Example
+
+```python
+import dspy
+
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+program = dspy.ChainOfThought('question -> answer')
+
+def exact_match(example, prediction, trace=None):
+    return prediction.answer.strip().lower() == example.answer.strip().lower()
+
+optimizer = dspy.MIPROv2(
+    metric=exact_match,
+    auto='medium',
+    num_threads=8,
+    prompt_model=dspy.LM('openai/gpt-4o'),
+)
+
+optimized = optimizer.compile(
+    program,
+    trainset=train,
+    valset=dev,
+    requires_permission_to_run=False,
+)
+
+optimized.save('qa_mipro_v1.json')
+```
+
+<Note>
+  Always pass a `valset` that is disjoint from your `trainset`. MIPROv2 uses the validation set to pick the best program, and overlapping data can cause it to overfit to your training examples.
+</Note>
+
+<Tip>
+  Start with `auto='light'` to verify that your metric and data pipeline work correctly before committing to a full `'medium'` or `'heavy'` run.
+</Tip>

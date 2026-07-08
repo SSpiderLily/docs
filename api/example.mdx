@@ -1,0 +1,119 @@
+---
+title: "dspy.Example — Training and Evaluation Data Points"
+sidebarTitle: "Example"
+description: "dspy.Example is the data class used to represent training and evaluation examples in DSPy. Learn to create examples, specify input fields, and build training sets."
+---
+
+`dspy.Example` is a lightweight, dict-like object that holds a single data point — a combination of input fields (what your program receives) and label fields (what it should produce). Every training set, validation set, and evaluation dataset in DSPy is a list of `Example` objects. You can access fields by attribute name, iterate over keys, and mark which fields count as program inputs versus ground-truth labels. Getting your data into `Example` format is typically the first step before you run any optimizer.
+
+## Creating Examples
+
+```python
+import dspy
+
+example = dspy.Example(
+    question='What is the capital of France?',
+    answer='Paris',
+    context='France is a country in Western Europe.'
+)
+```
+
+Pass any keyword arguments you like — there are no reserved field names.
+
+---
+
+## Specifying Inputs
+
+Calling `.with_inputs()` marks which fields are program inputs. This is required for optimization: the optimizer uses the input fields to feed examples into your program and the remaining fields as ground-truth labels to score the output against.
+
+```python
+# Mark which fields are program inputs
+example = dspy.Example(
+    question='What is 2 + 2?',
+    answer='4'
+).with_inputs('question')
+
+# Multiple inputs
+example = dspy.Example(
+    context='The sky is blue.',
+    question='What color is the sky?',
+    answer='Blue'
+).with_inputs('context', 'question')
+```
+
+---
+
+## Accessing Fields
+
+```python
+print(example.question)   # 'What is the capital of France?'
+print(example.answer)     # 'Paris'
+print(example.inputs())   # {'question': 'What is the capital of France?'}
+print(example.labels())   # {'answer': 'Paris', 'context': '...'}
+print(example.keys())     # dict_keys(['question', 'answer', 'context'])
+```
+
+- `.inputs()` returns a dict containing only the fields you marked with `.with_inputs()`.
+- `.labels()` returns a dict of everything else — the fields treated as ground truth.
+- `.keys()` returns all field names regardless of their input/label designation.
+
+---
+
+## Building a Training Set
+
+Construct your training set as a plain Python list of `Example` objects. Each example must have `.with_inputs()` called so the optimizer knows which fields to pass to your program.
+
+```python
+train = [
+    dspy.Example(
+        question='What is the boiling point of water?',
+        answer='100°C at sea level'
+    ).with_inputs('question'),
+    dspy.Example(
+        question='Who wrote Romeo and Juliet?',
+        answer='William Shakespeare'
+    ).with_inputs('question'),
+    # Add 20+ examples for reliable optimization
+]
+```
+
+<Note>
+  Aim for at least 20 labeled training examples for prompt optimization and several hundred for fine-tuning. More diverse examples improve the optimizer's ability to generalize across different inputs.
+</Note>
+
+---
+
+## Loading from a CSV or JSON
+
+You can build your training set programmatically from any data source. The most common pattern is loading from a JSON file:
+
+```python
+import json
+
+with open('training_data.json') as f:
+    raw = json.load(f)
+
+train = [
+    dspy.Example(**row).with_inputs('question')
+    for row in raw
+]
+```
+
+For a CSV file, use Python's `csv` module or `pandas`:
+
+```python
+import csv
+
+with open('training_data.csv', newline='') as f:
+    reader = csv.DictReader(f)
+    train = [
+        dspy.Example(**row).with_inputs('question')
+        for row in reader
+    ]
+```
+
+---
+
+<Tip>
+  Examples without labels — only inputs — can still be useful with `BootstrapFewShot`. The optimizer runs your program on the inputs and uses its own successful outputs as bootstrapped demonstrations. This means you can start optimizing even before you have manually annotated labels for every example.
+</Tip>

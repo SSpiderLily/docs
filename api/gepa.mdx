@@ -1,0 +1,113 @@
+---
+title: "dspy.GEPA — Reflective Prompt Evolution Optimizer API"
+sidebarTitle: "GEPA"
+description: "dspy.GEPA iteratively evolves prompt instructions using LM reflection and optional text feedback from your metric, delivering instruction-level improvements without manual tuning."
+---
+
+GEPA (Generative Evolutionary Prompt Advisor) takes a fundamentally different approach to instruction optimization compared to search-based optimizers. Instead of sampling from a fixed library of candidates, GEPA uses a `reflection_lm` to read the actual failure cases from the current instruction, reason about why they went wrong, and write a targeted revision that addresses those specific errors. This closed-loop reflection loop means GEPA can produce meaningful instruction improvements even with a small number of iterations, and it gets even more powerful when your metric returns structured text feedback alongside a numeric score.
+
+## Constructor
+
+```python
+optimizer = dspy.GEPA(
+    metric,
+    reflection_lm=None,
+    auto='medium',
+    num_threads=4,
+)
+```
+
+### Parameters
+
+<ParamField path="metric" type="callable" required>
+  A scoring function called as `(example, prediction, trace) -> float | bool`. GEPA also supports an enriched signature where your metric returns a `dspy.Prediction(score=..., feedback=...)` object — the `feedback` string is passed directly to the `reflection_lm` as diagnostic context when rewriting instructions.
+</ParamField>
+
+<ParamField path="reflection_lm" type="dspy.LM" default="None">
+  The language model responsible for analyzing failures and writing improved instructions. Defaults to the globally configured LM when not set. For best results, pass a larger, more capable model here — the reflection LM only runs a handful of times per optimization cycle, so the cost overhead is minimal compared to the quality gain.
+</ParamField>
+
+<ParamField path="auto" type="str" default="medium">
+  Budget preset controlling how many reflection-and-evaluation cycles to run. `'light'` completes quickly with fewer iterations; `'medium'` is the recommended default; `'heavy'` runs more cycles for maximum instruction quality.
+</ParamField>
+
+<ParamField path="num_threads" type="int" default="4">
+  Number of parallel threads used when evaluating candidate instruction variants against your dataset.
+</ParamField>
+
+---
+
+## `compile()` Method
+
+```python
+optimized = optimizer.compile(
+    student,
+    trainset,
+    valset=None,
+)
+```
+
+### Parameters
+
+<ParamField path="student" type="dspy.Module" required>
+  The DSPy program whose instructions you want to optimize. GEPA modifies the instruction of every `dspy.Predict`-based module inside this program.
+</ParamField>
+
+<ParamField path="trainset" type="list[dspy.Example]" required>
+  Training examples used to evaluate each instruction candidate and surface failure cases for the reflection step.
+</ParamField>
+
+<ParamField path="valset" type="list[dspy.Example]" default="None">
+  An optional held-out validation set used to select the best instruction at the end of optimization. When omitted, GEPA selects based on `trainset` performance.
+</ParamField>
+
+### Return Value
+
+`compile()` returns a copy of `student` with the best-found instructions loaded into each module. The original `student` is not modified.
+
+---
+
+## Writing a Feedback Metric
+
+You can make GEPA's reflection step significantly more targeted by returning a `dspy.Prediction` with a `feedback` field instead of a plain scalar. GEPA will forward that feedback string verbatim to the `reflection_lm` when it writes the next instruction revision.
+
+```python
+def metric_with_feedback(example, prediction, trace=None, pred_name=None, pred_trace=None):
+    correct = prediction.answer.strip().lower() == example.answer.strip().lower()
+    if correct:
+        return dspy.Prediction(score=1.0, feedback=None)
+    return dspy.Prediction(
+        score=0.0,
+        feedback=f"Expected '{example.answer}' but got '{prediction.answer}'. Be more concise."
+    )
+```
+
+When your metric produces `feedback=None` (or returns a plain float), GEPA still works — it just relies on the pattern of failures rather than explicit diagnostic text.
+
+---
+
+## Full Example
+
+```python
+import dspy
+
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+optimizer = dspy.GEPA(
+    metric=metric_with_feedback,
+    reflection_lm=dspy.LM('openai/gpt-4o'),
+    auto='medium',
+    num_threads=4,
+)
+
+optimized = optimizer.compile(program, trainset=train, valset=dev)
+optimized.save('program_gepa_v1.json')
+```
+
+<Tip>
+  Pass `reflection_lm` a larger model than your task model. The reflection LM only runs a handful of times per cycle, so the extra cost is small relative to the instruction quality improvement it delivers.
+</Tip>
+
+<Note>
+  GEPA optimizes instructions only — it does not add or modify few-shot demonstrations. If you also want to optimize demos, consider running GEPA inside a `BetterTogether` pipeline or following it with `BootstrapFewShot`.
+</Note>

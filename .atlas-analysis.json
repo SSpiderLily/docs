@@ -1,30 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
+  "projectType": "framework",
+  "projectName": "PromptOpt",
+  "projectDescription": "A prompt optimization system built on the DSPy framework that lets you program—not prompt—language models by declaring typed signatures, composing modular pipelines, and automatically compiling optimal prompts using data-driven optimizers.",
   "theme": "luma",
-  "name": "PromptOpt",
-  "colors": {
-    "primary": "#ef7025",
-    "light": "#eec9bc",
-    "dark": "#4fa1ab"
-  },
-  "favicon": "/favicon.svg",
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "GitHub",
-        "href": "https://github.com/stanfordnlp/dspy"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Get Started",
-      "href": "/quickstart"
-    }
-  },
+  "primaryColor": "#ef7025",
+  "lightColor": "#eec9bc",
+  "darkColor": "#4fa1ab",
   "navigation": {
     "tabs": [
       {
@@ -111,9 +92,38 @@
       }
     ]
   },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/stanfordnlp/dspy"
-    }
-  }
+  "keyFeatures": [
+    "Declarative Signatures — define tasks as typed input/output contracts instead of hand-crafted prompts",
+    "Composable Modules — swap Predict, ChainOfThought, ReAct, and custom modules without rewriting logic",
+    "Automatic Prompt Optimization — compile programs against a metric using MIPROv2, GEPA, and BootstrapFewShot",
+    "Few-Shot Learning — automatically synthesize and select high-quality demonstrations",
+    "Instruction Optimization — GEPA uses LM reflection to evolve and improve prompt instructions",
+    "Fine-Tuning Integration — BetterTogether and BootstrapFinetune combine prompt and weight optimization",
+    "Model Agnostic — works with OpenAI, Anthropic, local Ollama models, and any LiteLLM-compatible provider",
+    "Evaluation Framework — built-in evaluation loop with customizable scoring metrics"
+  ],
+  "publicApiSurface": [
+    "dspy.Signature",
+    "dspy.InputField",
+    "dspy.OutputField",
+    "dspy.Predict",
+    "dspy.ChainOfThought",
+    "dspy.ReAct",
+    "dspy.Module",
+    "dspy.LM",
+    "dspy.configure()",
+    "dspy.MIPROv2",
+    "dspy.GEPA",
+    "dspy.BootstrapFewShot",
+    "dspy.BootstrapFewShotWithRandomSearch",
+    "dspy.KNNFewShot",
+    "dspy.LabeledFewShot",
+    "dspy.BootstrapFinetune",
+    "dspy.BetterTogether",
+    "dspy.Evaluate",
+    "dspy.Example",
+    "optimizer.compile(program, trainset, valset)",
+    "program.save(path)",
+    "program.load(path)"
+  ]
 }

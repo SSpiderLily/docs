@@ -1,0 +1,96 @@
+---
+title: Save, Load, and Version Your Optimized DSPy Programs
+sidebarTitle: Save & Load
+description: Persist your optimized DSPy programs to JSON files, reload them in production without re-optimizing, and manage multiple program versions effectively.
+---
+
+Running an optimizer against a real training set takes time, LM calls, and money. Once your compiled program scores well on the evaluation set, you want to lock that result and ship it — not re-run the optimizer every time you deploy. DSPy's save and load system lets you persist every optimized parameter to a JSON file, reload it in any environment, and keep a clean version history alongside your source code.
+
+## Save after optimization
+
+Call `.save()` on any compiled DSPy program immediately after the optimizer finishes. Pass a file path — the directory must already exist.
+
+```python
+# After compiling/optimizing:
+optimized_program.save('models/rag_v2.json')
+# Saves prompts, few-shot examples, and all module parameters
+```
+
+## Load in production
+
+Recreate the same program class, then call `.load()` with the path to the saved file. DSPy restores the optimized instructions and demonstrations into the module structure — no optimizer run required.
+
+```python
+import dspy
+
+# Recreate the program architecture
+program = RAGPipeline(k=3)  # your module class
+# Load saved parameters
+program.load('models/rag_v2.json')
+# Ready to use — no re-optimization needed
+result = program(question='What is the capital of France?')
+```
+
+## Load into a fresh environment
+
+When deploying to a new machine or container, configure the language model before loading the program. DSPy needs an active LM to handle inference even when the prompts are pre-loaded.
+
+```python
+import dspy
+
+# Always configure the LM first
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+# Then load the program
+from myapp.programs import RAGPipeline
+program = RAGPipeline()
+program.load('rag_v2.json')
+```
+
+## What gets saved
+
+The JSON file captures everything the optimizer changed. Understanding the structure helps you inspect and debug your saved programs.
+
+<Tabs>
+  <Tab title="Module structure">
+    The file records the name and type of every module in your program — for example, `generate_query` as a `ChainOfThought` and `synthesize` as a `ChainOfThought`. This is how DSPy knows where to restore each set of parameters when you call `.load()`.
+  </Tab>
+  <Tab title="Optimized instructions">
+    Each module stores the instruction text the optimizer selected — the content of the system prompt that replaced the default DSPy template. For MIPROv2 outputs, these are often substantially different from what you wrote in the docstring.
+  </Tab>
+  <Tab title="Few-shot demonstrations">
+    `BootstrapFewShot` and `MIPROv2` select a subset of your training examples to include as in-context demonstrations. The saved file stores these examples verbatim, including intermediate reasoning traces when `ChainOfThought` was used.
+  </Tab>
+  <Tab title="LM configuration">
+    The model name and temperature used during optimization are recorded. This helps you audit which model version produced a given set of results and ensures you reload with a compatible configuration.
+  </Tab>
+</Tabs>
+
+## Versioning strategy
+
+Treat your JSON program files like model artifacts: name them to encode the optimizer used and the program's role in your pipeline, and commit them to version control alongside the code that loads them.
+
+```
+models/
+  rag_v1_baseline.json        # before optimization
+  rag_v2_bootstrap.json       # after BootstrapFewShot
+  rag_v3_mipro.json           # after MIPROv2 — production
+  rag_v4_gepa_candidate.json  # testing GEPA
+```
+
+<Tip>
+  Commit your `.json` program files to version control alongside your source code. This makes rollbacks easy — if a new optimization run produces worse results, you can revert to the previous file in seconds. It also creates an audit trail that links each deployed version to the training data and optimizer that produced it.
+</Tip>
+
+<Warning>
+  If you change your `Signature` — adding, removing, or renaming fields — existing saved files from the old signature may not load correctly. Treat signature changes like schema migrations: bump the version number, re-run optimization, and save a new file. Don't overwrite the previous version until the new one is validated in production.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="First Program" icon="play" href="/guides/first-program">
+    Walk through building and optimizing your first DSPy program from scratch, including how to create a training set and define a metric.
+  </Card>
+  <Card title="Fine-Tuning" icon="microchip" href="/guides/fine-tuning">
+    Learn how saving interacts with fine-tuned weight checkpoints when using BootstrapFinetune and BetterTogether.
+  </Card>
+</CardGroup>

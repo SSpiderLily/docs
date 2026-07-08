@@ -1,0 +1,110 @@
+---
+title: "GEPA: Reflective Prompt Evolution for Better Instructions"
+sidebarTitle: GEPA
+description: GEPA uses an LM reflection loop to evolve your prompt instructions, incorporating metric feedback to iteratively guide improvement.
+---
+
+GEPA is DSPy's newest optimizer, and it distinguishes itself from the others by closing the loop between your metric and the instruction-writing process. Instead of generating candidate instructions blindly, GEPA sends your metric's feedback — including textual explanations of *why* a prediction was wrong — to a `reflection_lm`, which proposes targeted improvements to your instructions. The result is an optimizer that learns from its own mistakes across multiple rounds of evolution.
+
+## How GEPA Works
+
+<Steps>
+  <Step title="Score your program">
+    GEPA runs your program on training examples and scores each prediction using your metric. It keeps track of both the numeric scores and any feedback text your metric returns.
+  </Step>
+  <Step title="Reflect on failures">
+    GEPA sends the failing examples, their scores, and the feedback text to a `reflection_lm`. The reflection model analyzes the patterns in the failures and identifies what the current instructions are causing the program to get wrong.
+  </Step>
+  <Step title="Propose new instructions">
+    Based on its analysis, the `reflection_lm` writes a set of new candidate instructions that target the identified weak spots — phrasing constraints more clearly, adding edge-case guidance, or correcting systematic misunderstandings.
+  </Step>
+  <Step title="Evaluate and iterate">
+    GEPA evaluates the candidate instructions on the validation set, keeps the best-performing ones, and repeats the reflect-propose-evaluate loop until the budget is exhausted.
+  </Step>
+</Steps>
+
+## Basic Usage
+
+```python
+import dspy
+
+optimizer = dspy.GEPA(
+    metric=my_metric,
+    auto='medium',          # 'light', 'medium', or 'heavy'
+    reflection_lm=dspy.LM('openai/gpt-4o'),  # writes improved instructions
+    num_threads=4,
+)
+
+optimized = optimizer.compile(program, trainset=train, valset=dev)
+```
+
+## Writing a Feedback-Enabled Metric
+
+A standard metric returns a single number. A feedback-enabled metric returns a `dspy.Prediction` with both a `score` and a `feedback` string. GEPA uses the feedback to write better instructions — the richer and more specific the feedback, the more targeted the proposed improvements.
+
+```python
+def metric_with_feedback(example, prediction, trace=None, pred_name=None, pred_trace=None):
+    if prediction.answer.strip().lower() == example.answer.strip().lower():
+        return dspy.Prediction(score=1.0, feedback=None)
+    return dspy.Prediction(
+        score=0.0,
+        feedback=(
+            f"The correct answer is '{example.answer}' but the model said "
+            f"'{prediction.answer}'. Make sure to extract only the final value."
+        )
+    )
+```
+
+<Note>
+GEPA works best when your metric can explain *why* a prediction is wrong. If your metric only returns 0 or 1 without feedback, GEPA still runs and improves instructions — it just cannot use the targeted reflection feature, so gains may be smaller than with feedback enabled.
+</Note>
+
+## Choosing a Reflection LM
+
+<Tabs>
+  <Tab title="Recommended setup">
+    Use a larger, more capable model as `reflection_lm` and a smaller, cheaper model as your task model. The reflection LM only runs a few times per GEPA iteration — the cost is minimal relative to the savings you capture by running inference on a smaller task model.
+
+    ```python
+    task_lm = dspy.LM('openai/gpt-4o-mini')
+    dspy.configure(lm=task_lm)
+
+    optimizer = dspy.GEPA(
+        metric=metric_with_feedback,
+        auto='medium',
+        reflection_lm=dspy.LM('openai/gpt-4o'),
+    )
+    ```
+  </Tab>
+  <Tab title="Same model for both">
+    If budget or access is limited, you can use the same model for both roles. Results are still good — you simply lose some of the quality advantage from having a more capable model propose the instruction changes.
+
+    ```python
+    lm = dspy.LM('openai/gpt-4o-mini')
+    dspy.configure(lm=lm)
+
+    optimizer = dspy.GEPA(
+        metric=metric_with_feedback,
+        auto='medium',
+        reflection_lm=lm,  # same as task model
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Real-World Results
+
+GEPA's reflection loop has produced dramatic gains in production settings where cost and reliability matter.
+
+<CardGroup cols={2}>
+  <Card title="Shopify" icon="store">
+    Converted a GPT-5 task to a small Qwen model optimized with GEPA — approximately **75× cheaper** and **2× more reliable** than the original pipeline.
+  </Card>
+  <Card title="Dropbox" icon="dropbox">
+    Moved to a smaller base model with GEPA optimization — achieved **2× higher accuracy** while reducing labeling costs by **10–100×**.
+  </Card>
+</CardGroup>
+
+<Tip>
+Start with GEPA if you care deeply about reducing inference cost without sacrificing quality. The reflection loop is particularly effective at teaching small models to match the behavior of much larger ones.
+</Tip>

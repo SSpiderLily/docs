@@ -1,0 +1,77 @@
+---
+title: "MIPROv2: Optimize Prompt Instructions and Demonstrations"
+sidebarTitle: MIPROv2
+description: MIPROv2 runs a three-stage search over instructions and demos for every prompt in your pipeline, boosting accuracy on multi-step programs.
+---
+
+MIPROv2 is DSPy's most powerful general-purpose optimizer. It jointly searches over the instructions and few-shot demonstrations in every module of your program, using a surrogate model to efficiently navigate the space without evaluating every possible combination. If you have 20 or more training examples and want to push your program's accuracy as high as possible, MIPROv2 is the right starting point.
+
+## How MIPROv2 Works
+
+MIPROv2 runs three stages in sequence, each building on the output of the previous one.
+
+<Steps>
+  <Step title="Bootstrapping">
+    MIPROv2 runs your program on training inputs and collects all execution traces. Traces that score well according to your metric become candidate few-shot demonstrations — real, high-quality input–output pairs that your model can learn from.
+  </Step>
+  <Step title="Grounded proposal">
+    Using your program's source code, the training data, and the bootstrapped traces as context, MIPROv2 prompts a `prompt_model` to draft many diverse candidate instructions for each module. Grounding the proposals in real data and real traces means candidates are specific and actionable rather than generic.
+  </Step>
+  <Step title="Discrete search">
+    MIPROv2 evaluates combinations of instructions and demos on your validation set, fitting a surrogate model to predict which combinations are likely to score highest. This lets it focus its trial budget on the most promising regions of the search space and return the best program it found.
+  </Step>
+</Steps>
+
+## Basic Usage
+
+Pass your metric, choose a budget preset, and call `compile` with your program and training data.
+
+```python
+import dspy
+
+optimizer = dspy.MIPROv2(
+    metric=my_metric,
+    auto='medium',       # 'light', 'medium', or 'heavy'
+    num_threads=8,       # parallel evaluations
+    prompt_model=dspy.LM('openai/gpt-4o'),      # model for generating instructions (optional)
+    task_model=dspy.LM('openai/gpt-4o-mini'),   # model being optimized (optional)
+)
+
+optimized = optimizer.compile(
+    program,
+    trainset=train,
+    valset=dev,              # optional but strongly recommended
+    num_trials=20,           # number of candidate programs to evaluate
+    max_bootstrapped_demos=4,
+    max_labeled_demos=4,
+)
+```
+
+## Key Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `auto` | `str` | Budget preset: `'light'` (~6 trials), `'medium'` (~25 trials), `'heavy'` (~50+ trials) |
+| `num_threads` | `int` | Parallel evaluations per trial — increase for speed, but respect your API rate limits |
+| `max_bootstrapped_demos` | `int` | Maximum auto-generated few-shot examples added per module |
+| `max_labeled_demos` | `int` | Maximum labeled examples drawn from `trainset` and used as demos |
+| `prompt_model` | `dspy.LM` | The LM used to write candidate instructions — defaults to `task_model` if omitted |
+| `num_trials` | `int` | Overrides the `auto` preset if set explicitly |
+
+<Tip>
+Set `prompt_model` to a larger, more capable model than your `task_model`. The prompt writer runs only a handful of times during the grounded-proposal stage — the extra cost is minimal, but the quality uplift from richer, more targeted instruction candidates is significant.
+</Tip>
+
+## Composing MIPROv2 Runs
+
+You can run MIPROv2 twice, using the first-pass optimized program as the starting point for the second pass. The second pass explores refinements around the best solution found in the first pass, which often yields additional gains without starting the search from scratch.
+
+```python
+# Run twice — second pass uses first-pass output as starting point
+pass1 = dspy.MIPROv2(metric=my_metric, auto='light').compile(program, trainset=train)
+pass2 = dspy.MIPROv2(metric=my_metric, auto='medium').compile(pass1, trainset=train)
+```
+
+<Note>
+When composing runs, always use the same `dev` / `valset` split for both passes so score comparisons across passes remain valid.
+</Note>

@@ -1,0 +1,98 @@
+---
+title: "BootstrapFewShot: Fast Few-Shot Demo Selection and Tuning"
+sidebarTitle: Bootstrap
+description: BootstrapFewShot generates and selects high-quality few-shot demos for every module in your pipeline using your metric as a filter.
+---
+
+BootstrapFewShot is the fastest way to improve a DSPy program and is the natural first thing to try. Rather than searching over instructions, it focuses entirely on *demonstrations* — it runs your program on training examples, filters the traces by your metric, and attaches the best-scoring examples as few-shot context to each module's prompt. You get meaningful quality improvements with minimal compute and as few as a handful of training examples.
+
+## How It Works
+
+<Steps>
+  <Step title="Run the program (or teacher)">
+    BootstrapFewShot executes your program — or an optional, more capable teacher program — on the training set, collecting the full execution trace for each example.
+  </Step>
+  <Step title="Filter by metric">
+    Each trace is scored by your metric. Only traces where every intermediate step succeeds end up as candidate demonstrations. This quality gate ensures that your few-shot examples model correct behavior, not average behavior.
+  </Step>
+  <Step title="Attach demos to modules">
+    The filtered traces are assigned to each module in your program as few-shot demonstrations. At inference time, the model sees real, high-quality input–output pairs before being asked to answer.
+  </Step>
+</Steps>
+
+## Variants
+
+<Tabs>
+  <Tab title="BootstrapFewShot">
+    The simplest variant. Runs one round of bootstrapping and attaches the best demos it finds. Use this when you need fast results or have very limited data.
+
+    ```python
+    from dspy.teleprompt import BootstrapFewShot
+
+    optimizer = BootstrapFewShot(
+        metric=my_metric,
+        max_bootstrapped_demos=4,   # max auto-generated demos per module
+        max_labeled_demos=4,        # max labeled examples from trainset
+        max_rounds=1,               # number of bootstrapping rounds
+        teacher_settings={},        # settings for teacher (defaults to program)
+    )
+
+    optimized = optimizer.compile(program, trainset=train)
+    ```
+  </Tab>
+  <Tab title="BootstrapFewShotWithRandomSearch">
+    Tries multiple random combinations of demonstrations and returns the configuration that scores highest on a held-out validation set. More robust than the basic variant with only modest extra cost.
+
+    ```python
+    from dspy.teleprompt import BootstrapFewShotWithRandomSearch
+
+    optimizer = BootstrapFewShotWithRandomSearch(
+        metric=my_metric,
+        max_bootstrapped_demos=4,
+        max_labeled_demos=4,
+        num_candidate_programs=8,  # number of random programs to try
+        num_threads=4,
+    )
+
+    optimized = optimizer.compile(program, trainset=train)
+    ```
+  </Tab>
+  <Tab title="LabeledFewShot">
+    Skips bootstrapping entirely and draws demonstrations directly from your labeled training set. Use this when you have a fully annotated dataset and want to avoid running inference during optimization.
+
+    ```python
+    from dspy.teleprompt import LabeledFewShot
+
+    optimizer = LabeledFewShot(k=8)  # use 8 labeled demos
+    optimized = optimizer.compile(program, trainset=labeled_train)
+    ```
+  </Tab>
+  <Tab title="KNNFewShot">
+    Selects demonstrations at inference time rather than at compile time. For each new input, it retrieves the *k* nearest neighbors from the training set and uses those as context. This gives every prediction tailored, relevant examples.
+
+    ```python
+    from dspy.teleprompt import KNNFewShot
+
+    optimizer = KNNFewShot(k=5, trainset=train)
+    optimized = optimizer.compile(program, trainset=train)
+    # At inference: picks the k nearest training examples as demos
+    ```
+  </Tab>
+</Tabs>
+
+## Variant Comparison
+
+| Variant | Best for | Notes |
+|---|---|---|
+| `BootstrapFewShot` | Quick wins, small datasets | Fastest to run |
+| `BootstrapFewShotWithRandomSearch` | More reliable, reproducible results | Tries multiple random configurations |
+| `LabeledFewShot` | Fully labeled datasets | No inference needed during optimization |
+| `KNNFewShot` | Instance-specific demonstrations | Demo selection varies per input at runtime |
+
+<Tip>
+Use `BootstrapFewShot` as a fast first pass to establish a solid baseline, then hand the optimized program to MIPROv2 or GEPA for further instruction-level gains. The demonstrations bootstrapped in the first pass give the second optimizer a much better starting point than a blank slate.
+</Tip>
+
+<Note>
+If you want to use a stronger teacher model to bootstrap demos for a weaker task model, pass a separately configured program to `compile` as the `teacher` argument. This is a simple but effective way to transfer capability from a larger model to a smaller one.
+</Note>

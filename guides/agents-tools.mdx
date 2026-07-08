@@ -1,0 +1,126 @@
+---
+title: Build Optimizable Agents with Tools Using DSPy ReAct
+sidebarTitle: Agents & Tools
+description: Build tool-using agents with dspy.ReAct that reason, call tools, and iterate to reach an answer — then optimize the entire reasoning loop with a metric.
+---
+
+ReAct (Reason + Act) is a pattern where the model alternates between reasoning about what to do next and calling a tool to gather information, repeating until it reaches a final answer. What makes DSPy's `dspy.ReAct` different from a hand-prompted agent is that the entire reasoning loop — including the instructions that guide when and how to use each tool — is optimizable. You define a metric, supply training examples, and let the optimizer improve the agent's behavior end-to-end rather than tuning prompts by hand.
+
+## Define your tools
+
+Tools are plain Python functions with type annotations and docstrings. DSPy reads the docstring and type signature to describe each tool to the model, so write them as you would for a human colleague: clear, specific, and honest about what the function does.
+
+```python
+import dspy
+import math
+
+def calculate(expression: str) -> float:
+    """Evaluate a mathematical expression and return the result."""
+    return eval(expression, {'__builtins__': {}}, vars(math))
+
+def search_knowledge_base(query: str) -> str:
+    """Search the company knowledge base and return relevant text."""
+    # Replace with your vector search implementation
+    return knowledge_base.query(query)
+
+def get_current_date() -> str:
+    """Return today's date in YYYY-MM-DD format."""
+    from datetime import date
+    return str(date.today())
+```
+
+<Tip>
+  Write clear, specific docstrings for your tools — these become part of the prompt the model uses to decide when and how to call each tool. A vague docstring like `"Does a search"` produces worse tool-selection behavior than `"Search the company knowledge base and return relevant text."`.
+</Tip>
+
+## Create a ReAct agent
+
+Pass your signature and tool list to `dspy.ReAct`. The `max_iters` parameter caps how many reasoning-and-action steps the agent can take before it must produce a final answer.
+
+```python
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+agent = dspy.ReAct(
+    'question -> answer',
+    tools=[calculate, search_knowledge_base, get_current_date],
+    max_iters=5  # max reasoning steps
+)
+
+result = agent(question='What is the square root of the number of days in a leap year?')
+print(result.answer)  # The square root of 366 is approximately 19.13
+```
+
+## Add structured output fields
+
+Replace the inline string signature with a `dspy.Signature` class when you need typed outputs beyond a single answer string — for example, a confidence score that downstream code can act on.
+
+```python
+class AgentSignature(dspy.Signature):
+    """Answer customer support questions using available tools."""
+    question: str = dspy.InputField()
+    answer: str = dspy.OutputField()
+    confidence: float = dspy.OutputField(desc='0 to 1 confidence score')
+
+agent = dspy.ReAct(AgentSignature, tools=[search_knowledge_base], max_iters=3)
+```
+
+## Optimize the agent
+
+Use `MIPROv2` to search for better instructions for the agent's reasoning loop. Provide labeled examples where you know the correct final answer — DSPy handles evaluating the intermediate tool-call steps automatically.
+
+```python
+train = [
+    dspy.Example(
+        question='What is 15% of 240?',
+        answer='36'
+    ).with_inputs('question'),
+    # ...
+]
+
+def correct_answer(example, prediction, trace=None):
+    return example.answer.strip() in prediction.answer
+
+optimizer = dspy.MIPROv2(metric=correct_answer, auto='light')
+optimized_agent = optimizer.compile(agent, trainset=train)
+```
+
+<Warning>
+  Be careful with tools that have side effects — sending emails, writing to a database, or charging a payment method. Test your agent thoroughly in a sandbox environment before running the optimizer, which will call your tools many times with generated inputs during the search process.
+</Warning>
+
+## Compose agents as pipeline stages
+
+A `dspy.ReAct` agent is itself a `dspy.Module`, so you can nest it inside a larger pipeline just like any other module. For example, you might use a fast `ChainOfThought` module to classify the incoming question, then route it to a specialized agent:
+
+```python
+class RouterPipeline(dspy.Module):
+    def __init__(self):
+        self.classify = dspy.ChainOfThought('question -> category')
+        self.math_agent = dspy.ReAct(
+            'question -> answer',
+            tools=[calculate],
+            max_iters=4
+        )
+        self.search_agent = dspy.ReAct(
+            'question -> answer',
+            tools=[search_knowledge_base],
+            max_iters=4
+        )
+
+    def forward(self, question):
+        category = self.classify(question=question).category
+        if 'math' in category.lower():
+            return self.math_agent(question=question)
+        return self.search_agent(question=question)
+```
+
+When you compile `RouterPipeline`, the optimizer tunes the classifier and both agents together as a single unit.
+
+<CardGroup cols={2}>
+  <Card title="Fine-Tuning" icon="microchip" href="/guides/fine-tuning">
+    Go beyond prompt optimization — fine-tune model weights with BootstrapFinetune to get smaller, cheaper models that match larger ones.
+  </Card>
+  <Card title="MIPROv2 Reference" icon="sliders" href="/optimizers/miprov2">
+    Explore the full MIPROv2 configuration: candidate counts, instruction styles, and how to control optimization cost.
+  </Card>
+</CardGroup>

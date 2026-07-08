@@ -1,0 +1,89 @@
+---
+title: "dspy.Predict — Direct Signature Completion Module"
+sidebarTitle: "Predict"
+description: "dspy.Predict is the simplest DSPy module — it calls your signature directly without additional reasoning steps, making it fast, cheap, and easy to optimize."
+---
+
+`dspy.Predict` is the foundational building block of every DSPy program. All higher-level modules — `ChainOfThought`, `ReAct`, and your own custom `dspy.Module` subclasses — ultimately rely on `Predict` under the hood. It takes a signature, formats the inputs into a prompt, calls the configured language model, and parses the response back into typed output fields. Because it adds no extra reasoning overhead, it is the fastest and most token-efficient module in DSPy.
+
+## Constructor
+
+```python
+predict = dspy.Predict(signature, **kwargs)
+```
+
+<ParamField body="signature" type="dspy.Signature | str" required>
+  The task contract for this module. Pass a `dspy.Signature` subclass for typed, documented fields, or an inline string like `'question -> answer'` for quick prototyping.
+</ParamField>
+
+<ParamField body="n" type="int" default="1">
+  The number of independent completions to generate. When `n > 1`, the result contains a list of candidate outputs rather than a single response.
+</ParamField>
+
+<ParamField body="temperature" type="float">
+  Sampling temperature override. Higher values produce more varied outputs; lower values produce more deterministic ones. Defaults to the value set on the configured LM.
+</ParamField>
+
+<ParamField body="max_tokens" type="int">
+  Maximum number of tokens to generate in the output. Overrides the LM-level default for this module only.
+</ParamField>
+
+## Calling a Predict Module
+
+Once constructed, call the module like a function, passing your input field values as keyword arguments. The return value is a `dspy.Prediction` object whose attributes map to your signature's output fields.
+
+```python
+result = predict(field1=value1, field2=value2)
+print(result.output_field_name)
+```
+
+## Full Example
+
+```python
+import dspy
+
+dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
+
+class Summarize(dspy.Signature):
+    """Summarize the article in 2-3 sentences."""
+    article: str = dspy.InputField()
+    summary: str = dspy.OutputField()
+
+summarize = dspy.Predict(Summarize)
+result = summarize(article='...long article text...')
+print(result.summary)
+```
+
+## Per-Call Overrides
+
+You can override generation parameters for a single call without modifying the module itself by passing a `config` dictionary.
+
+```python
+# Override temperature for this call
+result = summarize(article='...', config={'temperature': 0.0})
+```
+
+## Setting a Module-Level LM
+
+Use `set_lm()` to route all calls from this specific `Predict` instance to a different language model, independent of the global `dspy.configure()` setting.
+
+```python
+summarize.set_lm(dspy.LM('openai/gpt-4o'))
+```
+
+<Tip>
+  `set_lm()` is especially useful in multi-step pipelines where different steps benefit from different models — for example, routing a lightweight classification step to a small model while using a larger model for generation.
+</Tip>
+
+## Accessing Internal State After Optimization
+
+After you run an optimizer like `MIPROv2` or `BootstrapFewShot`, the optimizer writes its results directly onto the `Predict` instance. You can inspect these to understand what the optimizer learned.
+
+```python
+print(summarize.demos)               # few-shot examples selected by the optimizer
+print(summarize.extended_signature)  # the optimized signature with rewritten instructions
+```
+
+<Note>
+  `demos` is a list of `dspy.Example` objects. Each example contains the input/output pair the optimizer found most helpful for guiding the model. During inference, these are prepended to the prompt automatically.
+</Note>

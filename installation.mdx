@@ -1,0 +1,158 @@
+---
+title: Installing PromptOpt and Configuring Your LM
+sidebarTitle: Installation
+description: Install PromptOpt via pip, set up your API key, and configure a language model provider — OpenAI, Anthropic, Ollama, or any LiteLLM-compatible service.
+---
+
+This page walks you through installing PromptOpt's DSPy dependency, setting your API credentials, and wiring up a language model so every module in your program knows which backend to call. You will also learn how to pin individual modules to different models when one size does not fit all.
+
+## Requirements
+
+PromptOpt requires **Python 3.10 or higher**. Check your version before proceeding:
+
+```bash
+python --version
+```
+
+If your system Python is older, use [pyenv](https://github.com/pyenv/pyenv) or your platform's package manager to install a supported release.
+
+## Install DSPy
+
+Install the core package with your preferred tool. The base install covers all major LM providers through LiteLLM. Optional extras add integrations for vector databases, evaluation frameworks, and additional model backends.
+
+<CodeGroup>
+
+```bash pip
+pip install dspy
+```
+
+```bash uv
+uv pip install dspy
+```
+
+```bash conda
+conda install -c conda-forge dspy
+```
+
+</CodeGroup>
+
+To install every optional extra in one shot, append the `[all]` specifier:
+
+```bash
+pip install dspy[all]
+```
+
+<Tip>
+  Use `pip install dspy[all]` in development and `pip install dspy` in
+  production to keep your deployment image lean.
+</Tip>
+
+## Configure a Language Model Provider
+
+DSPy's `dspy.LM` constructor accepts a LiteLLM-style `provider/model` string, which means you can swap providers by changing a single argument. Call `dspy.configure(lm=...)` once at startup to set the global default; every module in your program inherits it automatically.
+
+### OpenAI
+
+```python
+import dspy
+
+lm = dspy.LM('openai/gpt-4o-mini', api_key='sk-...')
+dspy.configure(lm=lm)
+```
+
+<Note>
+  Instead of passing `api_key` directly, export your key as the
+  `OPENAI_API_KEY` environment variable and omit the argument entirely. This
+  keeps secrets out of your source code and works seamlessly in CI and
+  container environments.
+</Note>
+
+### Anthropic
+
+```python
+lm = dspy.LM('anthropic/claude-3-5-haiku-20241022', api_key='sk-ant-...')
+dspy.configure(lm=lm)
+```
+
+Set `ANTHROPIC_API_KEY` in your environment to avoid hardcoding the key.
+
+### Local Models with Ollama
+
+Run open-weight models entirely on your own hardware. Start the Ollama server before configuring DSPy, then point `api_base` at the local endpoint.
+
+```python
+# Start Ollama server first: ollama serve
+lm = dspy.LM('ollama_chat/llama3.1', api_base='http://localhost:11434')
+dspy.configure(lm=lm)
+```
+
+<Tip>
+  Local models have no per-token cost and no data leaves your machine — ideal
+  for early-stage experimentation and privacy-sensitive workloads.
+</Tip>
+
+## Advanced: Per-Module LM Override
+
+The global LM is a sensible default, but some programs benefit from routing expensive or reasoning-heavy steps to a larger model while keeping routine steps on a cheaper one. Call `set_lm()` on any module after construction.
+
+```python
+class MyProgram(dspy.Module):
+    def __init__(self):
+        self.step1 = dspy.ChainOfThought('question -> reasoning')
+        self.step1.set_lm(dspy.LM('openai/gpt-4o'))  # expensive step uses bigger model
+        self.step2 = dspy.Predict('reasoning -> answer')
+        # step2 uses the global lm
+```
+
+<Info>
+  Per-module overrides survive serialization. When you save an optimized
+  program with `module.save()`, the assigned LM identifiers are stored
+  alongside the learned demonstrations.
+</Info>
+
+## Verify Your Setup
+
+Run the following snippet to confirm that DSPy is installed correctly and your chosen model responds:
+
+```python
+import dspy
+
+print(dspy.settings.lm)  # shows the configured model
+
+result = dspy.Predict('question -> answer')(question='What is 2+2?')
+print(result.answer)     # 4
+```
+
+If you see a response, your environment is ready. If you get an authentication error, double-check that your API key is set and that the model name matches the provider's current naming convention.
+
+## Supported Providers
+
+PromptOpt inherits DSPy's full LiteLLM compatibility layer. Any provider listed in the [LiteLLM documentation](https://docs.litellm.ai/docs/providers) works with a matching `provider/model` string.
+
+| Provider | Example Model String |
+|---|---|
+| OpenAI | `openai/gpt-4o-mini` |
+| Anthropic | `anthropic/claude-3-5-haiku-20241022` |
+| Google Gemini | `gemini/gemini-1.5-flash` |
+| AWS Bedrock | `bedrock/anthropic.claude-3-sonnet-20240229-v1:0` |
+| Azure OpenAI | `azure/my-deployment-name` |
+| Cohere | `cohere/command-r-plus` |
+| Ollama | `ollama_chat/llama3.1` |
+| HuggingFace | `huggingface/mistralai/Mistral-7B-Instruct-v0.1` |
+| Any LiteLLM provider | `<provider>/<model>` |
+
+<Note>
+  DSPy caches LM responses by default in `~/.dspy_cache`. During development
+  this means repeated calls with identical inputs return instantly and cost
+  nothing. Delete the cache directory or set `cache=False` on `dspy.LM` to
+  disable caching when you need fresh responses.
+</Note>
+
+## Next Steps
+
+With PromptOpt installed and your LM configured, you are ready to build and optimize your first program.
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Build a sentiment classifier, run it, and optimize it with BootstrapFewShot
+  in under five minutes.
+</Card>

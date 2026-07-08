@@ -4,7 +4,7 @@ sidebarTitle: "GEPA"
 description: "dspy.GEPA iteratively evolves prompt instructions using LM reflection and optional text feedback from your metric, delivering instruction-level improvements without manual tuning."
 ---
 
-GEPA (Generative Evolutionary Prompt Advisor) takes a fundamentally different approach to instruction optimization compared to search-based optimizers. Instead of sampling from a fixed library of candidates, GEPA uses a `reflection_lm` to read the actual failure cases from the current instruction, reason about why they went wrong, and write a targeted revision that addresses those specific errors. This closed-loop reflection loop means GEPA can produce meaningful instruction improvements even with a small number of iterations, and it gets even more powerful when your metric returns structured text feedback alongside a numeric score.
+GEPA takes a fundamentally different approach to instruction optimization compared to search-based optimizers. Instead of sampling from a fixed library of candidates, GEPA uses a `reflection_lm` to read the actual failure cases from the current instruction, reason about why they went wrong, and write a targeted revision that addresses those specific errors. This closed-loop reflection loop means GEPA can produce meaningful instruction improvements even with a small number of iterations, and it gets even more powerful when your metric returns structured text feedback alongside a numeric score.
 
 ## Constructor
 
@@ -72,7 +72,7 @@ optimized = optimizer.compile(
 You can make GEPA's reflection step significantly more targeted by returning a `dspy.Prediction` with a `feedback` field instead of a plain scalar. GEPA will forward that feedback string verbatim to the `reflection_lm` when it writes the next instruction revision.
 
 ```python
-def metric_with_feedback(example, prediction, trace=None, pred_name=None, pred_trace=None):
+def metric_with_feedback(example, prediction, trace=None):
     correct = prediction.answer.strip().lower() == example.answer.strip().lower()
     if correct:
         return dspy.Prediction(score=1.0, feedback=None)

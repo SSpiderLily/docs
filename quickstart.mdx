@@ -1,5 +1,5 @@
 ---
-title: Get Started with PromptOpt in 5 Minutes
+title: "Get Started: Build and Optimize a Program with PromptOpt"
 sidebarTitle: Quickstart
 description: Build and optimize your first language model program with PromptOpt and DSPy in under five minutes using a simple classification example.
 ---
@@ -92,9 +92,7 @@ train_data = [
 def accuracy_metric(example, prediction, trace=None):
     return prediction.sentiment == example.sentiment
 
-from dspy.teleprompt import BootstrapFewShot
-
-optimizer = BootstrapFewShot(metric=accuracy_metric, max_bootstrapped_demos=3)
+optimizer = dspy.BootstrapFewShot(metric=accuracy_metric, max_bootstrapped_demos=3)
 optimized = optimizer.compile(classify, trainset=train_data)
 ```
 
@@ -134,7 +132,7 @@ You have a working, optimized classifier. Explore these topics to go further:
   </Card>
   <Card title="Optimizers" icon="sliders" href="/concepts/optimizers">
     Understand the full optimizer landscape: when to use BootstrapFewShot,
-    MIPROv2, BayesianSignatureOptimizer, and more.
+    MIPROv2, GEPA, and more.
   </Card>
   <Card title="Build a RAG Pipeline" icon="database" href="/guides/rag-pipeline">
     Combine retrieval and generation into a multi-step program and optimize the

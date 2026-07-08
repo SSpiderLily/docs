@@ -30,7 +30,7 @@ optimizer = BetterTogether(
 </ParamField>
 
 <ParamField path="**named_optimizers" type="dspy optimizer instances">
-  Keyword arguments where each key is a short name you assign to an optimizer and each value is a configured (but not yet compiled) optimizer instance. The names you choose here are the tokens you use in the `strategy` string passed to `compile()`. For example, passing `p=GEPA(...)` and `w=BootstrapFinetune(...)` lets you write `strategy='p -> w'`.
+  Keyword arguments where each key is a short name you assign to an optimizer and each value is a configured (but not yet compiled) optimizer instance. The names you choose here are the tokens you use in the `strategy` string passed to `compile()`. For example, passing `p=dspy.GEPA(...)` and `w=BootstrapFinetune(...)` lets you write `strategy='p -> w'`.
 </ParamField>
 
 ---
@@ -66,19 +66,19 @@ result = optimizer.compile(
 </ParamField>
 
 <ParamField path="optimizer_compile_args" type="dict" default="None">
-  A dictionary of per-optimizer keyword arguments to forward to each optimizer's `compile()` call, keyed by optimizer name. For example, `{'p': {'num_trials': 10}, 'w': {'epochs': 3}}` passes `num_trials=10` when compiling the prompt optimizer and `epochs=3` when compiling the weight optimizer.
+  A dictionary of per-optimizer keyword arguments to forward to each optimizer's `compile()` call, keyed by optimizer name. For example, `{'p': {'num_trials': 10}, 'w': {'teacher': teacher_program}}` passes `num_trials=10` when compiling the prompt optimizer and a custom teacher when compiling the weight optimizer.
 </ParamField>
 
 ### Return Value
 
-`compile()` returns the program that scored highest on `valset` (or `trainset` if no `valset` is provided) across all evaluated stages. The returned program also exposes a `candidate_programs` attribute — a list of `{program, score}` dicts sorted by descending score — so you can inspect or reload any intermediate result.
+`compile()` returns the program that scored highest on `valset` (or `trainset` if no `valset` is provided) across all evaluated stages. The returned program also exposes a `candidate_programs` attribute — a list of `{program, score, strategy}` dicts sorted by descending score — so you can inspect or reload any intermediate result.
 
 ---
 
 ## Full Example
 
 ```python
-from dspy.teleprompt import GEPA, BootstrapFinetune, BetterTogether
+from dspy.teleprompt import BootstrapFinetune, BetterTogether
 import dspy
 
 lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
@@ -87,7 +87,7 @@ program.set_lm(lm)
 
 optimizer = BetterTogether(
     metric=my_metric,
-    p=GEPA(metric=my_metric, auto='medium'),
+    p=dspy.GEPA(metric=my_metric, auto='medium'),
     w=BootstrapFinetune(metric=my_metric),
 )
 

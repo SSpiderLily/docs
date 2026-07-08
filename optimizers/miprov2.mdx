@@ -41,22 +41,26 @@ optimized = optimizer.compile(
     program,
     trainset=train,
     valset=dev,              # optional but strongly recommended
-    num_trials=20,           # number of candidate programs to evaluate
+    num_trials=20,           # number of Bayesian optimization trials to run
     max_bootstrapped_demos=4,
     max_labeled_demos=4,
 )
 ```
 
+<Warning>
+The `requires_permission_to_run` parameter is deprecated and should be removed from any existing code. Passing `requires_permission_to_run=True` now raises an error; passing `False` logs a deprecation warning. Omit the argument entirely in new code.
+</Warning>
+
 ## Key Parameters
 
 | Parameter | Type | Description |
 |---|---|---|
-| `auto` | `str` | Budget preset: `'light'` (~6 trials), `'medium'` (~25 trials), `'heavy'` (~50+ trials) |
+| `auto` | `str` | Budget preset: `'light'` (~6 candidates), `'medium'` (~12 candidates), `'heavy'` (~18 candidates) |
 | `num_threads` | `int` | Parallel evaluations per trial — increase for speed, but respect your API rate limits |
 | `max_bootstrapped_demos` | `int` | Maximum auto-generated few-shot examples added per module |
 | `max_labeled_demos` | `int` | Maximum labeled examples drawn from `trainset` and used as demos |
 | `prompt_model` | `dspy.LM` | The LM used to write candidate instructions — defaults to `task_model` if omitted |
-| `num_trials` | `int` | Overrides the `auto` preset if set explicitly |
+| `num_trials` | `int` | Number of Bayesian optimization trials to run; overrides the `auto` preset if set explicitly |
 
 <Tip>
 Set `prompt_model` to a larger, more capable model than your `task_model`. The prompt writer runs only a handful of times during the grounded-proposal stage — the extra cost is minimal, but the quality uplift from richer, more targeted instruction candidates is significant.
@@ -68,8 +72,8 @@ You can run MIPROv2 twice, using the first-pass optimized program as the startin
 
 ```python
 # Run twice — second pass uses first-pass output as starting point
-pass1 = dspy.MIPROv2(metric=my_metric, auto='light').compile(program, trainset=train)
-pass2 = dspy.MIPROv2(metric=my_metric, auto='medium').compile(pass1, trainset=train)
+pass1 = dspy.MIPROv2(metric=my_metric, auto='light').compile(program, trainset=train, valset=dev)
+pass2 = dspy.MIPROv2(metric=my_metric, auto='medium').compile(pass1, trainset=train, valset=dev)
 ```
 
 <Note>

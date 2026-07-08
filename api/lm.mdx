@@ -1,10 +1,10 @@
 ---
-title: "dspy.LM — Language Model Configuration API"
+title: "dspy.LM — Language Model Configuration Reference"
 sidebarTitle: "LM"
-description: "dspy.LM connects DSPy to any language model provider. Configure your model name, API key, temperature, caching, and retry behavior in a single object."
+description: "dspy.LM connects DSPy to any language model provider. Configure your model, API key, temperature, caching, and retry behavior in a single object."
 ---
 
-`dspy.LM` is the object that connects your DSPy program to an actual language model. Every call your program makes — whether bootstrapping demonstrations, generating candidate instructions, or running inference — flows through an `LM` instance. Under the hood, DSPy uses [LiteLLM](https://docs.litellm.ai/) to route requests, which means you can point `dspy.LM` at any of the 100+ providers LiteLLM supports simply by changing the model string. You configure your model once, pass it to `dspy.configure()` to set it globally, and optionally override it per-module with `set_lm()`.
+`dspy.LM` is the object that connects your DSPy program to an actual language model. Every call your program makes — whether generating predictions, bootstrapping demonstrations, or running inference — flows through an `LM` instance. DSPy uses [LiteLLM](https://docs.litellm.ai/) to route requests, which means you can point `dspy.LM` at any of the 100+ providers LiteLLM supports by changing the model string. You configure your model once, pass it to `dspy.configure()` to set it globally, and optionally override it per-module with `set_lm()`.
 
 ## Constructor
 

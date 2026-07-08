@@ -35,7 +35,7 @@ The base optimizer. It runs one bootstrapping pass and selects the best demos fo
   Maximum number of auto-generated demonstrations to include per module. Increasing this adds more few-shot context but also grows the prompt size.
 </ParamField>
 
-<ParamField path="max_labeled_demos" type="int" default="4">
+<ParamField path="max_labeled_demos" type="int" default="16">
   Maximum number of labeled examples pulled directly from `trainset` to use as demonstrations per module.
 </ParamField>
 
@@ -53,7 +53,7 @@ from dspy.teleprompt import BootstrapFewShot
 optimizer = BootstrapFewShot(
     metric=my_metric,
     max_bootstrapped_demos=3,
-    max_labeled_demos=4,
+    max_labeled_demos=16,
 )
 optimized = optimizer.compile(program, trainset=train)
 ```
@@ -64,10 +64,14 @@ optimized = optimizer.compile(program, trainset=train)
 
 An extended version that generates multiple candidate programs — each with a different random subset of bootstrapped demos — and returns the one that scores highest on your training set. Use this when you want better demo selection quality and have the compute budget for it.
 
-### Additional Parameter
+### Additional Parameters
 
 <ParamField path="num_candidate_programs" type="int" default="8">
   Number of randomly sampled demo configurations to evaluate. Higher values explore more of the demo space at the cost of more LM calls.
+</ParamField>
+
+<ParamField path="num_threads" type="int" default="6">
+  Number of parallel threads used when evaluating candidate programs.
 </ParamField>
 
 ```python

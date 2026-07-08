@@ -33,7 +33,6 @@ Before you run `BootstrapFinetune`, confirm that:
 
 ```python
 import dspy
-from dspy.teleprompt import BootstrapFinetune
 
 # Your program must have the LM set explicitly (not via global dspy.configure)
 lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
@@ -41,18 +40,16 @@ lm = dspy.LM('openai/gpt-4o-mini', api_key='...')
 class MyProgram(dspy.Module):
     def __init__(self):
         self.step = dspy.ChainOfThought('question -> answer')
-        self.step.set_lm(lm)  # required for BootstrapFinetune
 
     def forward(self, question):
         return self.step(question=question)
 
 program = MyProgram()
+program.set_lm(lm)  # required: BootstrapFinetune needs an explicit LM on every predictor
 
-optimizer = BootstrapFinetune(
+optimizer = dspy.BootstrapFinetune(
     metric=my_metric,
-    target='openai/gpt-4o-mini',  # model to fine-tune
-    epochs=2,
-    learning_rate=2e-5,
+    train_kwargs={'epochs': 2, 'learning_rate': 2e-5},  # passed through to the provider's fine-tuning API
 )
 
 finetuned = optimizer.compile(program, trainset=train_data)
@@ -63,12 +60,10 @@ finetuned = optimizer.compile(program, trainset=train_data)
 `BetterTogether` is a two-phase strategy that first runs a prompt optimizer to find the best instructions, then uses those improved demonstrations as training data for fine-tuning. This combination consistently outperforms either approach alone.
 
 ```python
-from dspy.teleprompt import GEPA, BootstrapFinetune, BetterTogether
-
-optimizer = BetterTogether(
+optimizer = dspy.BetterTogether(
     metric=my_metric,
-    p=GEPA(metric=my_metric, auto='medium'),
-    w=BootstrapFinetune(metric=my_metric),
+    p=dspy.GEPA(metric=my_metric, auto='medium'),
+    w=dspy.BootstrapFinetune(metric=my_metric),
 )
 
 program.set_lm(lm)
@@ -80,7 +75,7 @@ result = optimizer.compile(
 )
 ```
 
-The `strategy='p -> w'` argument tells `BetterTogether` to run the prompt optimizer (`p`) first, then hand its output to the weight optimizer (`w`). You can also use `'w -> p'` to fine-tune first and then refine the prompt, or `'p | w'` to run both in parallel and take the best result.
+The `strategy='p -> w'` argument tells `BetterTogether` to run the prompt optimizer (`p`) first, then hand its output to the weight optimizer (`w`). You can also use `'w -> p'` to fine-tune first and then refine the prompt, or `'p -> w -> p'` to run prompt optimization, fine-tune, then do a second round of prompt optimization on the fine-tuned model.
 
 ## Cost and time considerations
 
@@ -94,7 +89,7 @@ Fine-tuning is slower and more expensive than prompt optimization. Keep these pr
     Begin with `epochs=1` or `epochs=2`. Overfitting on small datasets is common, and more epochs don't always help. Validate on a held-out set after each epoch if your provider supports checkpoints.
   </Tab>
   <Tab title="Version your fine-tuned models">
-    Save both the DSPy program JSON and the fine-tuned model ID returned by your provider. You'll need the model ID to reload the fine-tuned weights in production — treat it like a database migration identifier.
+    Save both the DSPy program JSON and the fine-tuned model ID returned by your provider. You'll need the model ID to reload the fine-tuned weights in production — record it in your deployment configuration alongside the program file.
   </Tab>
 </Tabs>
 

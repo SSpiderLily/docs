@@ -20,8 +20,8 @@ def calculate(expression: str) -> float:
 
 def search_knowledge_base(query: str) -> str:
     """Search the company knowledge base and return relevant text."""
-    # Replace with your vector search implementation
-    return knowledge_base.query(query)
+    # Replace with your vector search implementation (e.g. Pinecone, Weaviate, ChromaDB)
+    raise NotImplementedError("Swap in your vector store client here")
 
 def get_current_date() -> str:
     """Return today's date in YYYY-MM-DD format."""

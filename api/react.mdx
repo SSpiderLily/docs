@@ -1,7 +1,7 @@
 ---
-title: "dspy.ReAct — Tool-Using Agent Module for DSPy"
+title: "dspy.ReAct — Tool-Using Reasoning and Acting Agent"
 sidebarTitle: "ReAct"
-description: "dspy.ReAct implements a reasoning-and-acting loop that lets your program call external tools iteratively to gather information before producing a final answer."
+description: "dspy.ReAct implements a reasoning-and-acting loop that calls external tools iteratively to gather information before producing the final output fields."
 ---
 
 `dspy.ReAct` turns a signature into a full agent loop: the model reasons about what to do, calls one of your tools, observes the result, and repeats — up to `max_iters` times — before producing the final output fields declared on your signature. Because the entire loop is expressed as a DSPy module, you can optimize it end-to-end using any DSPy optimizer, just like you would a `Predict` or `ChainOfThought` module.
@@ -9,7 +9,7 @@ description: "dspy.ReAct implements a reasoning-and-acting loop that lets your p
 ## Constructor
 
 ```python
-agent = dspy.ReAct(signature, tools, max_iters=5)
+agent = dspy.ReAct(signature, tools, max_iters=20)
 ```
 
 <ParamField body="signature" type="dspy.Signature | str" required>
@@ -20,7 +20,7 @@ agent = dspy.ReAct(signature, tools, max_iters=5)
   A list of Python functions the agent may call. DSPy uses each function's **name** and **docstring** to describe the tool to the model, so both must be clear and informative.
 </ParamField>
 
-<ParamField body="max_iters" type="int" default="5">
+<ParamField body="max_iters" type="int" default="20">
   The maximum number of reasoning-and-action steps before the agent is forced to produce a final answer. Increase this for tasks that require many sequential lookups; decrease it to reduce cost and latency.
 </ParamField>
 
@@ -54,7 +54,7 @@ dspy.configure(lm=dspy.LM('openai/gpt-4o-mini', api_key='...'))
 agent = dspy.ReAct(
     'question -> answer',
     tools=[lookup_weather, calculate],
-    max_iters=4,
+    max_iters=5,
 )
 
 result = agent(question='What is the weather in Tokyo, and how does that compare to the average of 65°F and 80°F?')
@@ -63,12 +63,17 @@ print(result.answer)
 
 ## Accessing the Trace
 
-After each call, the result object exposes the full step-by-step trajectory. Each entry in `result.trajectory` shows the model's thought, the action it took, and the observation it received.
+After each call, the result object exposes the full step-by-step trajectory as a dictionary. Keys follow the pattern `thought_N`, `tool_name_N`, `tool_args_N`, and `observation_N` for each iteration index `N`.
 
 ```python
 result = agent(question='...')
-for step in result.trajectory:
-    print(step)  # shows thought, action, observation at each step
+for key, value in result.trajectory.items():
+    print(f"{key}: {value}")
+# e.g.:
+# thought_0: I need to look up the weather in Tokyo.
+# tool_name_0: lookup_weather
+# tool_args_0: {'city': 'Tokyo'}
+# observation_0: Weather in Tokyo: 68°F, partly cloudy
 ```
 
 ## Optimizing a ReAct Agent

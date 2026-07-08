@@ -91,9 +91,7 @@ In this guide, you'll build a working question-answering program using DSPy, tes
     Pass your module, training set, and metric to `BootstrapFewShot`. The optimizer runs your training examples, selects the best few-shot demonstrations, and compiles them into an improved version of your program.
 
     ```python
-    from dspy.teleprompt import BootstrapFewShot
-
-    optimizer = BootstrapFewShot(metric=answer_quality, max_bootstrapped_demos=4)
+    optimizer = dspy.BootstrapFewShot(metric=answer_quality, max_bootstrapped_demos=4)
     optimized_qa = optimizer.compile(qa, trainset=train)
     ```
   </Step>

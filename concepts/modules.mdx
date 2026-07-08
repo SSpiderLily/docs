@@ -42,10 +42,6 @@ print(result.reasoning)  # step-by-step reasoning
 print(result.solution)   # 150 miles
 ```
 
-<Note>
-  Always define `forward()` when subclassing `dspy.Module`. The optimizer traces this method to understand your program's structure and identify which modules to tune. If you override `__call__` instead, the optimizer cannot inspect your program correctly.
-</Note>
-
 ## Composing a Custom Module
 
 Subclass `dspy.Module` to build multi-step pipelines. Declare child modules in `__init__` and implement `forward()` to define the data flow between them.
@@ -66,6 +62,10 @@ answer = rag(question='What is the capital of France?')
 ```
 
 Each child module (`self.generate` here) has its own set of learnable parameters — instructions and few-shot examples — that the optimizer tunes independently. The more you decompose your pipeline into named child modules, the more leverage the optimizer has.
+
+<Note>
+  Always define `forward()` when subclassing `dspy.Module`. The optimizer traces this method to understand your program's structure and identify which modules to tune. If you override `__call__` instead, the optimizer cannot inspect your program correctly.
+</Note>
 
 ## Using ReAct with Tools
 

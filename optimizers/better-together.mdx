@@ -39,9 +39,11 @@ result = optimizer.compile(
     strategy='p -> w',   # prompt optimize, then fine-tune
 )
 
-# result.candidate_programs contains all intermediate programs
+# result.candidate_programs contains all intermediate programs, sorted by descending score
 for candidate in result.candidate_programs:
     print(candidate['strategy'], candidate['score'])
+
+best_program = result.candidate_programs[0]['program']
 ```
 
 ## Strategy Strings
@@ -87,8 +89,8 @@ After `compile` returns, `result.candidate_programs` is a list of all intermedia
 for candidate in result.candidate_programs:
     print(candidate['strategy'], candidate['score'])
 
-# Take the best program
-best = result.candidate_programs[0]
+# Take the best program (candidate_programs is sorted by descending score)
+best_program = result.candidate_programs[0]['program']
 ```
 
 <Tip>

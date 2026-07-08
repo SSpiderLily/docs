@@ -1,7 +1,7 @@
 ---
 title: "dspy.Example — Training and Evaluation Data Points"
 sidebarTitle: "Example"
-description: "dspy.Example is the data class used to represent training and evaluation examples in DSPy. Learn to create examples, specify input fields, and build training sets."
+description: "dspy.Example holds a single training or evaluation data point in DSPy. Learn to create examples, mark input fields, and build datasets for optimization."
 ---
 
 `dspy.Example` is a lightweight, dict-like object that holds a single data point — a combination of input fields (what your program receives) and label fields (what it should produce). Every training set, validation set, and evaluation dataset in DSPy is a list of `Example` objects. You can access fields by attribute name, iterate over keys, and mark which fields count as program inputs versus ground-truth labels. Getting your data into `Example` format is typically the first step before you run any optimizer.

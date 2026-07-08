@@ -81,9 +81,7 @@ optimized = optimizer.compile(program, trainset=train)
     `BootstrapFewShot` is the fastest optimizer. It runs your program on the training set and collects examples where the metric passes, then uses those as few-shot demonstrations.
 
     ```python
-    from dspy.teleprompt import BootstrapFewShot
-
-    optimizer = BootstrapFewShot(metric=exact_match, max_bootstrapped_demos=4)
+    optimizer = dspy.BootstrapFewShot(metric=exact_match, max_bootstrapped_demos=4)
     optimized = optimizer.compile(program, trainset=train)
     ```
 
@@ -93,8 +91,6 @@ optimized = optimizer.compile(program, trainset=train)
     `MIPROv2` jointly optimizes both instructions and few-shot demonstrations using a Bayesian search. The `auto` parameter controls the search budget.
 
     ```python
-    from dspy.teleprompt import MIPROv2
-
     optimizer = dspy.MIPROv2(metric=exact_match, auto='medium')
     optimized = optimizer.compile(program, trainset=train, num_trials=20)
     ```
@@ -102,12 +98,12 @@ optimized = optimizer.compile(program, trainset=train)
     Valid `auto` values: `'light'`, `'medium'`, `'heavy'`. Start with `'medium'` for most tasks.
   </Tab>
   <Tab title="GEPA">
-    `GEPA` uses reflection-based instruction optimization. Your metric must return a `dspy.Prediction` with `score` and `feedback` fields so the optimizer can understand *why* an output was wrong.
+    `GEPA` uses reflection-based instruction optimization. Your metric must return a `dspy.Prediction` with `score` and `feedback` fields so the optimizer can understand *why* an output was wrong. Pass a strong model as `reflection_lm` — GEPA uses it to propose improved instructions from your metric's feedback.
 
     ```python
-    from dspy.teleprompt import GEPA
+    reflection_lm = dspy.LM('openai/gpt-4o', temperature=1.0, max_tokens=16000)
 
-    optimizer = GEPA(metric=gepa_metric)
+    optimizer = dspy.GEPA(metric=gepa_metric, auto='medium', reflection_lm=reflection_lm)
     optimized = optimizer.compile(program, trainset=train)
     ```
 
@@ -121,13 +117,14 @@ optimized = optimizer.compile(program, trainset=train)
 
 ## Saving and Loading a Compiled Program
 
-After compilation, save the optimized parameters to disk so you do not need to re-run the optimizer in production or CI.
+After compilation, save the optimized parameters to disk so you do not need to re-run the optimizer in production.
 
 ```python
 optimized.save('my_program_v1.json')
 
-# Reload without re-optimizing:
-program.load('my_program_v1.json')
+# Later, load the parameters into a fresh program of the same structure:
+loaded_program = dspy.ChainOfThought('question -> answer')
+loaded_program.load('my_program_v1.json')
 ```
 
 The saved file contains only the learned parameters (instructions and demos), not model weights. It is small and human-readable — check it into version control alongside your code.

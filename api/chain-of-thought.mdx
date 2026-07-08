@@ -1,7 +1,7 @@
 ---
 title: "dspy.ChainOfThought — Step-by-Step Reasoning Module"
 sidebarTitle: "ChainOfThought"
-description: "dspy.ChainOfThought adds a reasoning step before generating the final output, improving accuracy on tasks that require multi-step logic or complex deductions."
+description: "dspy.ChainOfThought prepends a reasoning step to your signature, improving accuracy on tasks that require multi-step logic, math, or complex deductions."
 ---
 
 `dspy.ChainOfThought` wraps your signature with an automatic `reasoning` field that the model fills in before it produces your declared output fields. By externalizing its intermediate thinking, the model makes fewer logical errors on analytical, mathematical, and multi-step tasks. The reasoning field is fully visible to you at runtime and is included in the examples that optimizers use when selecting few-shot demonstrations.

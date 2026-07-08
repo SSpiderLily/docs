@@ -1,7 +1,7 @@
 ---
-title: "dspy.Predict — Direct Signature Completion Module"
+title: "dspy.Predict — Foundational Signature Completion Module"
 sidebarTitle: "Predict"
-description: "dspy.Predict is the simplest DSPy module — it calls your signature directly without additional reasoning steps, making it fast, cheap, and easy to optimize."
+description: "dspy.Predict is the core DSPy module — calls your signature directly without extra reasoning steps, making it fast, efficient, and easy to optimize."
 ---
 
 `dspy.Predict` is the foundational building block of every DSPy program. All higher-level modules — `ChainOfThought`, `ReAct`, and your own custom `dspy.Module` subclasses — ultimately rely on `Predict` under the hood. It takes a signature, formats the inputs into a prompt, calls the configured language model, and parses the response back into typed output fields. Because it adds no extra reasoning overhead, it is the fastest and most token-efficient module in DSPy.
@@ -9,23 +9,15 @@ description: "dspy.Predict is the simplest DSPy module — it calls your signatu
 ## Constructor
 
 ```python
-predict = dspy.Predict(signature, **kwargs)
+predict = dspy.Predict(signature, **config)
 ```
 
 <ParamField body="signature" type="dspy.Signature | str" required>
   The task contract for this module. Pass a `dspy.Signature` subclass for typed, documented fields, or an inline string like `'question -> answer'` for quick prototyping.
 </ParamField>
 
-<ParamField body="n" type="int" default="1">
-  The number of independent completions to generate. When `n > 1`, the result contains a list of candidate outputs rather than a single response.
-</ParamField>
-
-<ParamField body="temperature" type="float">
-  Sampling temperature override. Higher values produce more varied outputs; lower values produce more deterministic ones. Defaults to the value set on the configured LM.
-</ParamField>
-
-<ParamField body="max_tokens" type="int">
-  Maximum number of tokens to generate in the output. Overrides the LM-level default for this module only.
+<ParamField body="**config" type="Any">
+  Optional keyword arguments forwarded to the language model as generation defaults — for example, `temperature=0.7`, `max_tokens=256`, or `n=3` for multiple completions. You can override any of these on a per-call basis by passing a `config` dictionary when calling the module.
 </ParamField>
 
 ## Calling a Predict Module
@@ -59,7 +51,7 @@ print(result.summary)
 You can override generation parameters for a single call without modifying the module itself by passing a `config` dictionary.
 
 ```python
-# Override temperature for this call
+# Override temperature for this call only
 result = summarize(article='...', config={'temperature': 0.0})
 ```
 
@@ -75,15 +67,15 @@ summarize.set_lm(dspy.LM('openai/gpt-4o'))
   `set_lm()` is especially useful in multi-step pipelines where different steps benefit from different models — for example, routing a lightweight classification step to a small model while using a larger model for generation.
 </Tip>
 
-## Accessing Internal State After Optimization
+## Accessing Optimizer Results
 
 After you run an optimizer like `MIPROv2` or `BootstrapFewShot`, the optimizer writes its results directly onto the `Predict` instance. You can inspect these to understand what the optimizer learned.
 
 ```python
-print(summarize.demos)               # few-shot examples selected by the optimizer
-print(summarize.extended_signature)  # the optimized signature with rewritten instructions
+print(summarize.demos)       # few-shot examples selected by the optimizer
+print(summarize.signature)   # the optimized signature with rewritten instructions
 ```
 
 <Note>
-  `demos` is a list of `dspy.Example` objects. Each example contains the input/output pair the optimizer found most helpful for guiding the model. During inference, these are prepended to the prompt automatically.
+  `demos` is a list of `dspy.Example` objects. Each example contains the input/output pair the optimizer found most helpful for guiding the model. During inference, these are prepended to the prompt automatically. The `signature` attribute holds the current (possibly optimizer-rewritten) task instructions and field descriptions.
 </Note>

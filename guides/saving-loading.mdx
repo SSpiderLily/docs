@@ -70,7 +70,7 @@ The JSON file captures everything the optimizer changed. Understanding the struc
 
 Treat your JSON program files like model artifacts: name them to encode the optimizer used and the program's role in your pipeline, and commit them to version control alongside the code that loads them.
 
-```
+```text
 models/
   rag_v1_baseline.json        # before optimization
   rag_v2_bootstrap.json       # after BootstrapFewShot
@@ -83,7 +83,7 @@ models/
 </Tip>
 
 <Warning>
-  If you change your `Signature` — adding, removing, or renaming fields — existing saved files from the old signature may not load correctly. Treat signature changes like schema migrations: bump the version number, re-run optimization, and save a new file. Don't overwrite the previous version until the new one is validated in production.
+  If you change your `Signature` — adding, removing, or renaming fields — existing saved files from the old signature may not load correctly. Treat signature changes like breaking version changes: bump the file's version number, re-run optimization, and save a new file. Don't overwrite the previous version until the new one is validated in production.
 </Warning>
 
 <CardGroup cols={2}>

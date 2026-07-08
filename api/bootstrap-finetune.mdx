@@ -18,42 +18,46 @@ from dspy.teleprompt import BootstrapFinetune
 
 ```python
 optimizer = BootstrapFinetune(
-    metric,
-    target,
-    epochs=1,
-    learning_rate=5e-5,
-    num_threads=4,
-    teacher_settings={},
+    metric=None,
+    multitask=True,
+    train_kwargs=None,
+    adapter=None,
+    exclude_demos=False,
+    num_threads=None,
 )
 ```
 
 ### Parameters
 
-<ParamField path="metric" type="callable" required>
-  A scoring function with signature `(example, prediction, trace) -> float | bool`. Only traces that pass this metric are included in the fine-tuning dataset.
+<ParamField path="metric" type="callable" default="None">
+  A scoring function with signature `(example, prediction, trace) -> float | bool`. Only traces that pass this metric are included in the fine-tuning dataset. When `None`, all collected traces are used.
 </ParamField>
 
-<ParamField path="target" type="str" required>
-  The model identifier to fine-tune, in LiteLLM format (e.g., `'openai/gpt-4o-mini'`). This must match the model your student program's LM is pointing to.
+<ParamField path="multitask" type="bool" default="True">
+  When `True`, all predictors that share the same LM are fine-tuned on a single combined dataset. When `False`, each predictor is fine-tuned independently on its own data. Multitask mode is more data-efficient and usually produces better results.
 </ParamField>
 
-<ParamField path="epochs" type="int" default="1">
-  Number of fine-tuning epochs. Increasing epochs gives the model more exposure to the training data but risks overfitting on small datasets.
+<ParamField path="train_kwargs" type="dict" default="None">
+  Provider-specific keyword arguments forwarded to the LM's fine-tuning API. Use this to set hyperparameters such as learning rate or number of epochs that your provider exposes. Accepts either a flat dict (applied to all LMs) or a dict keyed by `dspy.LM` instance for per-model configuration.
 </ParamField>
 
-<ParamField path="learning_rate" type="float" default="5e-5">
-  Learning rate for the fine-tuning job. The default is a safe starting point for most tasks; lower values produce more conservative updates.
+<ParamField path="adapter" type="Adapter" default="None">
+  The data-formatting adapter used when serializing traces into fine-tuning examples. Defaults to `ChatAdapter`. Accepts either a single adapter instance (applied to all LMs) or a dict keyed by `dspy.LM` instance.
 </ParamField>
 
-<ParamField path="num_threads" type="int" default="4">
-  Number of parallel threads used when bootstrapping traces from the training set before fine-tuning begins.
+<ParamField path="exclude_demos" type="bool" default="False">
+  When `True`, few-shot demonstrations are stripped from the fine-tuning examples, producing a zero-shot fine-tuned model. When `False`, any demos present in the predictor at compile time are included in each training example.
+</ParamField>
+
+<ParamField path="num_threads" type="int" default="None">
+  Number of parallel threads used when bootstrapping traces from the training set. Defaults to `dspy.settings.num_threads`.
 </ParamField>
 
 ---
 
 ## Setting the LM Explicitly
 
-Because `BootstrapFinetune` needs to know exactly which model to fine-tune, you must set the LM on your student program directly via `set_lm()` rather than relying on the global `dspy.configure()` setting. If you skip this step, `BootstrapFinetune` cannot determine which model to target.
+Because `BootstrapFinetune` fine-tunes the specific LM attached to each predictor, you must set the LM on your student program directly via `set_lm()` rather than relying on the global `dspy.configure()` setting. If you skip this step, `BootstrapFinetune` will raise a `ValueError` at compile time.
 
 ```python
 from dspy.teleprompt import BootstrapFinetune
@@ -65,8 +69,7 @@ program.set_lm(lm)  # required
 
 optimizer = BootstrapFinetune(
     metric=my_metric,
-    target='openai/gpt-4o-mini',
-    epochs=2,
+    train_kwargs={'n_epochs': 2},
 )
 
 finetuned = optimizer.compile(program, trainset=train)
@@ -77,20 +80,28 @@ finetuned.save('program_finetuned.json')
 
 ## `compile()` Method
 
-`compile(student, trainset)` bootstraps traces, builds the fine-tuning dataset, submits the fine-tuning job to your provider, waits for it to complete, and returns a new program whose LM points to the fine-tuned model checkpoint.
+`compile(student, trainset, teacher=None)` bootstraps traces from the training set, builds the fine-tuning dataset, submits the fine-tuning job to your provider, waits for it to complete, and returns the original `student` program updated so that each predictor's LM now points to the fine-tuned model checkpoint.
+
+```python
+finetuned = optimizer.compile(student, trainset=train, teacher=None)
+```
 
 <ParamField path="student" type="dspy.Module" required>
-  The program to fine-tune. All LMs inside the program must be set via `set_lm()`.
+  The program to fine-tune. All predictors inside the program must have their LM set via `set_lm()` before calling `compile()`.
 </ParamField>
 
 <ParamField path="trainset" type="list[dspy.Example]" required>
   Training examples used to generate the fine-tuning dataset. More examples generally produce better fine-tuned models; aim for at least a few hundred passing traces.
 </ParamField>
 
+<ParamField path="teacher" type="dspy.Module" default="None">
+  An optional pre-compiled teacher program used to generate higher-quality bootstrapped traces. When `None`, the student itself is used as the teacher. Pass a stronger, already-optimized program here to distill its behavior into the student's weights.
+</ParamField>
+
 ---
 
 <Warning>
-  Fine-tuning modifies model weights on your provider's infrastructure — charges apply. Check your provider's fine-tuning pricing before running `BootstrapFinetune`, and keep in mind that the cost scales with dataset size and the number of epochs.
+  Fine-tuning modifies model weights on your provider's infrastructure — charges apply. Check your provider's fine-tuning pricing before running `BootstrapFinetune`, and keep in mind that the cost scales with dataset size and the training hyperparameters you configure via `train_kwargs`.
 </Warning>
 
 <Note>

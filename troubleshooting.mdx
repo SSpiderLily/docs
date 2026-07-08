@@ -123,21 +123,20 @@ This page covers the most frequently encountered issues when building and optimi
 
     DSPy caches LM responses on disk so that re-running identical calls is free. After any change that should produce different outputs, that cache may be out of date.
 
-    You can disable caching entirely during debugging, or clear the cache directory to force fresh calls:
+    You can disable caching entirely during debugging, or configure it at the LM level to force fresh calls:
 
     ```python
     import dspy
 
-    # Disable the cache for the current session
-    dspy.settings.configure(cache_turn_on=False)
+    # Disable both in-memory and on-disk caches globally
+    dspy.configure_cache(enable_disk_cache=False, enable_memory_cache=False)
 
-    # Or permanently clear the on-disk cache
-    import shutil
-    import os
+    # Or disable caching for a single LM instance only
+    lm = dspy.LM('openai/gpt-4o-mini', cache=False)
+    dspy.configure(lm=lm)
 
-    cache_dir = os.path.expanduser('~/.dspy_cache')
-    shutil.rmtree(cache_dir, ignore_errors=True)
-    print('Cache cleared.')
+    # Re-enable caching when you're done debugging
+    dspy.configure_cache(enable_disk_cache=True, enable_memory_cache=True)
     ```
 
     <Note>
@@ -178,8 +177,7 @@ This page covers the most frequently encountered issues when building and optimi
     lm = dspy.LM(
         'openai/gpt-4o-mini',
         api_key='sk-...',
-        max_retries=5,
-        retry_on_rate_limit=True,
+        num_retries=8,   # retries with exponential backoff (default is 3)
     )
     dspy.configure(lm=lm)
 

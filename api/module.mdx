@@ -1,7 +1,7 @@
 ---
-title: "dspy.Module — Base Class for Custom DSPy Programs"
+title: "dspy.Module — Base Class for Building DSPy Programs"
 sidebarTitle: "Module"
-description: "dspy.Module is the base class for building custom, composable DSPy programs. Subclass it to combine multiple signatures and modules into a single optimizable pipeline."
+description: "dspy.Module is the base class for composable DSPy programs. Subclass it to combine signatures and modules into a single optimizable, serializable pipeline."
 ---
 
 Every custom DSPy program is a subclass of `dspy.Module`. The base class gives your program two things: a consistent interface that optimizers know how to inspect and rewrite, and automatic discovery of every `Predict`, `ChainOfThought`, `ReAct`, or nested `Module` you assign as an attribute in `__init__`. You define your program's logic in `forward`, and DSPy takes care of the rest — wiring up optimization, serialization, and LM routing across the entire pipeline.
